@@ -5,12 +5,13 @@ import Toolbar from './components/Toolbar.jsx'
 import CodeEditor from './components/CodeEditor.jsx'
 import Visualizer from './components/Visualizer.jsx'
 import WatchPanel from './components/WatchPanel.jsx'
+import useGraphStore from './store/graphStore.js'
 import useThemeStore from './store/themeStore.js'
 import useTimelineStore from './store/timelineStore.js'
-import { injectStore } from './core/InterpreterController.js'
+import * as Controller from './core/InterpreterController.js'
 
 // Inject the store into the controller once at startup
-injectStore(useTimelineStore)
+Controller.injectStore(useTimelineStore)
 
 // ─── Template code snippets ───────────────────────────────────────────────
 
@@ -152,9 +153,17 @@ while (queue.length > 0) {
 
 export default function App() {
   const { theme } = useThemeStore()
+  const hardReset = useTimelineStore(s => s.hardReset)
+  const resetGraph = useGraphStore(s => s.reset)
   const [code, setCode] = useState(TEMPLATES[0].code)
+  const [visualizerSession, setVisualizerSession] = useState(0)
 
   function applyTemplate(tpl) {
+    Controller.pause()
+    Controller.reset()
+    hardReset()
+    resetGraph()
+    setVisualizerSession(session => session + 1)
     setCode(tpl.code)
   }
 
@@ -185,7 +194,7 @@ export default function App() {
                 {/* Top: Visualizer */}
                 <Allotment.Pane minSize={120}>
                   <div className="h-full min-h-0 p-0.5 pr-0.5 pb-0">
-                    <Visualizer />
+                    <Visualizer key={visualizerSession} />
                   </div>
                 </Allotment.Pane>
 

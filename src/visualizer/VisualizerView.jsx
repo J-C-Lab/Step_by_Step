@@ -1,6 +1,8 @@
 import React, { useMemo, useEffect, useState } from 'react'
 import ReactFlow, {
   Background,
+  Handle,
+  Position,
   ReactFlowProvider,
   useReactFlow,
 } from 'reactflow'
@@ -36,6 +38,11 @@ function GlassNode({ data }) {
       userSelect:   'none',
       cursor:       'grab',
     }}>
+      <Handle
+        type="target"
+        position={Position.Top}
+        style={{ opacity: 0, pointerEvents: 'none' }}
+      />
       {data.label}
       {data.varName && (
         <div style={{
@@ -48,6 +55,11 @@ function GlassNode({ data }) {
           {data.varName}
         </div>
       )}
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        style={{ opacity: 0, pointerEvents: 'none' }}
+      />
     </div>
   )
 }
@@ -128,6 +140,16 @@ function CardNode({ data }) {
       </div>
       {/* Content */}
       <CardContent structType={data.structType} value={data.value} labelColor={labelColor} />
+      <Handle
+        type="target"
+        position={Position.Top}
+        style={{ opacity: 0, pointerEvents: 'none' }}
+      />
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        style={{ opacity: 0, pointerEvents: 'none' }}
+      />
     </div>
   )
 }
@@ -506,9 +528,11 @@ function makeEdge(source, target, label) {
     label,
     type: 'smoothstep',
     animated: true,
-    markerEnd: { type: 'arrowclosed' },
-    style: { strokeWidth: 1.5 },
-    labelStyle: { fontSize: 10, fill: '#94a3b8' },
-    labelBgStyle: { fill: 'transparent' },
+    markerEnd: { type: 'arrowclosed', color: '#38bdf8' },
+    style: { stroke: '#38bdf8', strokeWidth: 2 },
+    labelStyle: { fontSize: 10, fill: '#cbd5e1', fontWeight: 700 },
+    labelBgPadding: [4, 2],
+    labelBgBorderRadius: 6,
+    labelBgStyle: { fill: 'rgba(15,23,42,0.85)', fillOpacity: 0.9 },
   }
 }

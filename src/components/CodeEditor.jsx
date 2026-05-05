@@ -21,6 +21,14 @@ export default function CodeEditor({ code, onChange }) {
   const { timeline, currentStep } = useTimelineStore()
   const editorRef = useRef(null)
   const decorationsRef = useRef([])
+  const spaceKeyDisposableRef = useRef(null)
+
+  useEffect(() => {
+    return () => {
+      spaceKeyDisposableRef.current?.dispose()
+      spaceKeyDisposableRef.current = null
+    }
+  }, [])
 
   // Sync highlight whenever step changes
   useEffect(() => {
@@ -47,6 +55,21 @@ export default function CodeEditor({ code, onChange }) {
   function handleMount(editor) {
     editorRef.current = editor
     injectHighlightStyle()
+
+    spaceKeyDisposableRef.current?.dispose()
+    spaceKeyDisposableRef.current = editor.onKeyDown(e => {
+      const ev = e.browserEvent
+      const isPlainSpace =
+        ev.code === 'Space' &&
+        !ev.ctrlKey &&
+        !ev.metaKey &&
+        !ev.altKey
+
+      if (!isPlainSpace) return
+
+      e.preventDefault()
+      editor.trigger('keyboard', 'type', { text: ' ' })
+    })
   }
 
   return (
