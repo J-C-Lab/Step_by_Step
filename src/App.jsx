@@ -179,22 +179,24 @@ export default function App() {
 
           {/* RIGHT: Visualizer (top) + WatchPanel (bottom) */}
           <Allotment.Pane minSize={260}>
-            <div className="flex flex-col h-full gap-2">
-              <Allotment vertical defaultSizes={[55, 45]} separator>
+            <div className="flex flex-col h-full min-h-0 gap-2">
+              <div className="flex-1 min-h-0">
+                <Allotment vertical defaultSizes={[55, 45]} separator>
                 {/* Top: Visualizer */}
                 <Allotment.Pane minSize={120}>
-                  <div className="h-full p-0.5 pr-0.5 pb-0">
+                  <div className="h-full min-h-0 p-0.5 pr-0.5 pb-0">
                     <Visualizer />
                   </div>
                 </Allotment.Pane>
 
                 {/* Bottom: Watch Panel */}
                 <Allotment.Pane minSize={100}>
-                  <div className="h-full p-0.5 pt-0">
+                  <div className="h-full min-h-0 p-0.5 pt-0">
                     <WatchPanel />
                   </div>
                 </Allotment.Pane>
-              </Allotment>
+                </Allotment>
+              </div>
             </div>
           </Allotment.Pane>
         </Allotment>

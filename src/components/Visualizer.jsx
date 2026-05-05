@@ -22,6 +22,7 @@ export default function Visualizer() {
   const total    = timeline.length
 
   const lastFedStep = useRef(-1)
+  const prevTimelineLen = useRef(0)
 
   // Feed GraphStore whenever the displayed snapshot changes
   useEffect(() => {
@@ -36,13 +37,23 @@ export default function Visualizer() {
     updateGraph(structures, snap.step)
   }, [snap, prevSnap])   // updateGraph is stable (Zustand selector)
 
-  // Reset graph when a new program is loaded (timeline resets to length 1)
+  // Reset graph only on explicit timeline reset or fresh new program session.
+  // Avoid clearing when timeline length is 1 after init; otherwise step0 graph
+  // is fed then immediately wiped, causing an empty right panel.
   useEffect(() => {
-    if (timeline.length <= 1) {
+    const isHardReset = timeline.length === 0
+    const isNewProgramStart =
+      timeline.length === 1 &&
+      prevTimelineLen.current > 1 &&
+      (snap?.step ?? null) === 0
+
+    if (isHardReset || isNewProgramStart) {
       lastFedStep.current = -1
       resetGraph()
     }
-  }, [timeline.length])  // resetGraph is stable
+
+    prevTimelineLen.current = timeline.length
+  }, [timeline.length, snap?.step, resetGraph])
 
   return (
     <div className={`
