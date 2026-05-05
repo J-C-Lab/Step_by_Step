@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react'
+import React, { useEffect, useMemo, useRef } from 'react'
 import useThemeStore from '../store/themeStore.js'
 import useTimelineStore from '../store/timelineStore.js'
 import useGraphStore from '../store/graphStore.js'
@@ -21,21 +21,23 @@ export default function Visualizer() {
   const prevSnap = currentStep > 0 ? (timeline[currentStep - 1] ?? null) : null
   const total    = timeline.length
 
-  const lastFedStep = useRef(-1)
   const prevTimelineLen = useRef(0)
 
-  // Feed GraphStore whenever the displayed snapshot changes
-  useEffect(() => {
-    if (!snap) return
-    if (snap.step === lastFedStep.current) return
-    lastFedStep.current = snap.step
-
-    const { structures } = buildVisualizerState(
+  const structures = useMemo(() => {
+    if (!snap) return []
+    return buildVisualizerState(
       { variables: snap.variables },
       prevSnap ? { variables: prevSnap.variables } : null
-    )
+    ).structures
+  }, [snap, prevSnap])
+
+  // Feed GraphStore whenever displayed step data changes.
+  // We intentionally avoid step dedupe refs here so timeline scrub / pause /
+  // strict-mode remounts cannot accidentally skip a graph update.
+  useEffect(() => {
+    if (!snap || structures.length === 0) return
     updateGraph(structures, snap.step)
-  }, [snap, prevSnap])   // updateGraph is stable (Zustand selector)
+  }, [snap, structures, updateGraph])
 
   // Reset graph only on explicit timeline reset or fresh new program session.
   // Avoid clearing when timeline length is 1 after init; otherwise step0 graph
@@ -48,7 +50,6 @@ export default function Visualizer() {
       (snap?.step ?? null) === 0
 
     if (isHardReset || isNewProgramStart) {
-      lastFedStep.current = -1
       resetGraph()
     }
 
@@ -88,7 +89,7 @@ export default function Visualizer() {
 
       {/* React Flow canvas — always mounted, flex-1 to fill remaining space */}
       <div className="flex-1 min-h-0">
-        <VisualizerView theme={theme} />
+        <VisualizerView theme={theme} fallbackStructures={structures} />
       </div>
 
       {/* Call stack frames — below canvas, scrollable if needed */}

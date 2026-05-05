@@ -244,22 +244,29 @@ const NODE_TYPES = { glassNode: GlassNode, nullNode: NullNode, cardNode: CardNod
  * VisualizerView: single ReactFlowProvider always mounted.
  * All data structures render as persistent canvas nodes.
  */
-export default function VisualizerView({ theme }) {
+export default function VisualizerView({ theme, fallbackStructures = [] }) {
   return (
     <div style={{ width: '100%', height: '100%', minHeight: 260 }}>
-      <GraphCanvas theme={theme} />
+      <GraphCanvas theme={theme} fallbackStructures={fallbackStructures} />
     </div>
   )
 }
 
 // ─── Graph canvas (always mounted) ────────────────────────────────────────
 
-function GraphCanvasInner({ theme }) {
+function GraphCanvasInner({ theme, fallbackStructures }) {
   const nodes          = useGraphStore(s => s.nodes)
   const edges          = useGraphStore(s => s.edges)
   const onNodesChange  = useGraphStore(s => s.onNodesChange)
   const { fitView }    = useReactFlow()
   const [ready, setReady] = useState(false)
+  const liveFlow = useMemo(
+    () => buildLiveFlowFromStructures(fallbackStructures),
+    [fallbackStructures]
+  )
+  const useLiveFlow = liveFlow.nodes.length > 0
+  const renderNodes = useLiveFlow ? liveFlow.nodes : nodes
+  const renderEdges = useLiveFlow ? liveFlow.edges : edges
 
   // Mark ready after first paint
   useEffect(() => {
@@ -269,7 +276,7 @@ function GraphCanvasInner({ theme }) {
 
   // Fit view whenever nodes change and container is ready
   useEffect(() => {
-    if (!ready || nodes.length === 0) return
+    if (!ready || renderNodes.length === 0) return
     const id1 = requestAnimationFrame(() => {
       const id2 = requestAnimationFrame(() => {
         fitView({ padding: 0.2, duration: 300 })
@@ -277,10 +284,10 @@ function GraphCanvasInner({ theme }) {
       return () => cancelAnimationFrame(id2)
     })
     return () => cancelAnimationFrame(id1)
-  }, [nodes, ready, fitView])
+  }, [renderNodes, ready, fitView])
 
   // Inject theme tokens into glassNode data
-  const themedNodes = useMemo(() => nodes.map(n => {
+  const themedNodes = useMemo(() => renderNodes.map(n => {
     if (n.type !== 'glassNode' && n.type !== 'cardNode') return n
     return {
       ...n,
@@ -292,7 +299,7 @@ function GraphCanvasInner({ theme }) {
         activeTxt:   theme.graphActiveTxt ?? '#4ade80',
       },
     }
-  }), [nodes, theme])
+  }), [renderNodes, theme])
 
   return (
     <div
@@ -301,9 +308,9 @@ function GraphCanvasInner({ theme }) {
     >
       <ReactFlow
         nodes={themedNodes}
-        edges={edges}
+        edges={renderEdges}
         nodeTypes={NODE_TYPES}
-        onNodesChange={onNodesChange}
+        onNodesChange={useLiveFlow ? undefined : onNodesChange}
         fitView
         fitViewOptions={{ padding: 0.2 }}
         nodesDraggable={true}
@@ -322,14 +329,18 @@ function GraphCanvasInner({ theme }) {
           variant="dots"
         />
       </ReactFlow>
+
+      {themedNodes.length === 0 && fallbackStructures.length > 0 && (
+        <FallbackCanvas structures={fallbackStructures} theme={theme} />
+      )}
     </div>
   )
 }
 
-function GraphCanvas({ theme }) {
+function GraphCanvas({ theme, fallbackStructures }) {
   return (
     <ReactFlowProvider>
-      <GraphCanvasInner theme={theme} />
+      <GraphCanvasInner theme={theme} fallbackStructures={fallbackStructures} />
     </ReactFlowProvider>
   )
 }
@@ -342,4 +353,162 @@ function fmtVal(v) {
   if (typeof v === 'string')  return `"${v}"`
   if (typeof v === 'object')  return Array.isArray(v) ? `[…${v.length}]` : '{…}'
   return String(v)
+}
+
+function FallbackCanvas({ structures, theme }) {
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        inset: 0,
+        overflow: 'auto',
+        padding: 10,
+        pointerEvents: 'none',
+      }}
+    >
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+        {structures.slice(0, 40).map((s, i) => (
+          <div
+            key={`${s.name}-${i}`}
+            style={{
+              pointerEvents: 'auto',
+              minWidth: 120,
+              maxWidth: 280,
+              borderRadius: 10,
+              border: '1px solid rgba(255,255,255,0.18)',
+              background: 'rgba(255,255,255,0.06)',
+              padding: '6px 8px',
+              fontFamily: 'monospace',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: '#e2e8f0' }}>{s.name}</span>
+              <span style={{ fontSize: 9, color: '#94a3b8' }}>{String(s.type).toUpperCase()}</span>
+            </div>
+            <div style={{ fontSize: 11, color: '#cbd5e1' }}>
+              {fmtVal(s.value)}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function buildLiveFlowFromStructures(structures) {
+  if (!Array.isArray(structures) || structures.length === 0) {
+    return { nodes: [], edges: [] }
+  }
+
+  const nodes = []
+  const edges = []
+  const seen = new Set()
+
+  let listRow = 0
+  let treeRow = 0
+  const cardTypes = new Set(['array', 'stack', 'queue', 'matrix', 'object', 'primitive'])
+  const cards = []
+
+  for (const s of structures) {
+    if (s.type === 'linkedlist') {
+      let cur = s.value
+      let x = 40
+      const y = 40 + listRow * 120
+      let guard = 0
+      while (cur && typeof cur === 'object' && cur.__id__ && guard < 80) {
+        const id = cur.__id__
+        if (!seen.has(id)) {
+          seen.add(id)
+          nodes.push({
+            id,
+            type: 'glassNode',
+            data: { kind: 'pointer', label: getPointerVal(cur), varName: s.name, isActive: true },
+            position: { x, y },
+          })
+        }
+        if (cur.next && typeof cur.next === 'object' && cur.next.__id__) {
+          edges.push(makeEdge(id, cur.next.__id__, 'next'))
+        }
+        cur = cur.next
+        x += 160
+        guard++
+      }
+      listRow++
+    } else if (s.type === 'tree') {
+      const rootY = 40 + treeRow * 220
+      const visited = new Set()
+      const placeTree = (node, x, y, spread) => {
+        if (!node || typeof node !== 'object' || !node.__id__ || visited.has(node.__id__)) return
+        visited.add(node.__id__)
+        if (!seen.has(node.__id__)) {
+          seen.add(node.__id__)
+          nodes.push({
+            id: node.__id__,
+            type: 'glassNode',
+            data: { kind: 'pointer', label: getPointerVal(node), varName: s.name, isActive: true },
+            position: { x, y },
+          })
+        }
+        if (node.left && typeof node.left === 'object' && node.left.__id__) {
+          edges.push(makeEdge(node.__id__, node.left.__id__, 'left'))
+          placeTree(node.left, x - spread, y + 100, Math.max(spread / 2, 45))
+        }
+        if (node.right && typeof node.right === 'object' && node.right.__id__) {
+          edges.push(makeEdge(node.__id__, node.right.__id__, 'right'))
+          placeTree(node.right, x + spread, y + 100, Math.max(spread / 2, 45))
+        }
+      }
+      placeTree(s.value, 320 + treeRow * 100, rootY, 140)
+      treeRow++
+    } else if (cardTypes.has(s.type)) {
+      cards.push(s)
+    }
+  }
+
+  // Render non-pointer structures as persistent-like cards in the same canvas.
+  let cx = 40
+  const baseY = Math.max(
+    120,
+    nodes.reduce((m, n) => Math.max(m, (n.position?.y ?? 0) + 120), 0)
+  )
+  for (const s of cards) {
+    nodes.push({
+      id: `live_card__${s.name}`,
+      type: 'cardNode',
+      data: {
+        kind: 'card',
+        structType: s.type,
+        name: s.name,
+        value: s.value,
+        meta: s.meta ?? null,
+        isActive: true,
+      },
+      position: { x: cx, y: baseY },
+    })
+    cx += 220
+  }
+
+  return { nodes, edges }
+}
+
+function getPointerVal(node) {
+  if (!node || typeof node !== 'object') return '?'
+  if (node.val !== undefined) return String(node.val)
+  if (node.value !== undefined) return String(node.value)
+  return '?'
+}
+
+function makeEdge(source, target, label) {
+  return {
+    id: `live_${source}_${label}_${target}`,
+    source,
+    target,
+    label,
+    type: 'smoothstep',
+    animated: true,
+    markerEnd: { type: 'arrowclosed' },
+    style: { strokeWidth: 1.5 },
+    labelStyle: { fontSize: 10, fill: '#94a3b8' },
+    labelBgStyle: { fill: 'transparent' },
+  }
 }
