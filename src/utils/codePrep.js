@@ -23,6 +23,24 @@ export function prepareCodeForVisualization(code) {
     messages.push('将 let/const 转为 var，降低沙盒兼容风险。')
   }
 
+  const beforeDuplicateAssign = nextCode
+  nextCode = fixDuplicateSelfAssignment(nextCode)
+  if (nextCode !== beforeDuplicateAssign) {
+    messages.push('修正重复变量赋值，避免无意义的 self assignment。')
+  }
+
+  const beforeForOf = nextCode
+  nextCode = expandForOfLoops(nextCode)
+  if (nextCode !== beforeForOf) {
+    messages.push('将 for...of 改为索引 for 循环，便于当前沙盒逐步执行。')
+  }
+
+  const beforeArrayFrom = nextCode
+  nextCode = expandArrayFromFill(nextCode)
+  if (nextCode !== beforeArrayFrom) {
+    messages.push('将 Array.from(...fill...) 改为二维数组显式初始化循环。')
+  }
+
   const beforeArrayFill = nextCode
   nextCode = expandArrayFill(nextCode)
   if (nextCode !== beforeArrayFill) {
@@ -39,6 +57,12 @@ export function prepareCodeForVisualization(code) {
   nextCode = fixObviousArrayBoundResult(nextCode)
   if (nextCode !== beforeIndexFix) {
     messages.push('将明显的 dp[n] 结果访问修正为 dp[n - 1]，避免数组越界。')
+  }
+
+  const beforeInvokeFix = nextCode
+  nextCode = appendMissingFunctionInvocation(nextCode)
+  if (nextCode !== beforeInvokeFix) {
+    messages.push('检测到只定义函数未调用，已追加 var result = fn(args) 以进入算法内部。')
   }
 
   const beforeFormat = nextCode
@@ -83,6 +107,64 @@ function replaceTopLevelReturns(code) {
   }).join('\n')
 }
 
+function fixDuplicateSelfAssignment(code) {
+  return code.replace(
+    /\bvar\s+([A-Za-z_$][\w$]*)\s*=\s*\1\s*=\s*/g,
+    'var $1 = '
+  )
+}
+
+function expandForOfLoops(code) {
+  return code.split('\n').map(line => {
+    const match = line.match(
+      /^(\s*)for\s*\(\s*var\s+([A-Za-z_$][\w$]*)\s+of\s+([A-Za-z_$][\w$]*)\s*\)\s*\{\s*$/
+    )
+    if (!match) return line
+
+    const [, indent, itemName, collectionName] = match
+    const indexName = uniqueLoopIndexName(code, collectionName)
+
+    return [
+      `${indent}for (var ${indexName} = 0; ${indexName} < ${collectionName}.length; ${indexName}++) {`,
+      `${indent}  var ${itemName} = ${collectionName}[${indexName}];`,
+    ].join('\n')
+  }).join('\n')
+}
+
+function uniqueLoopIndexName(code, collectionName) {
+  const base = `__idx_${collectionName}`
+  let candidate = base
+  let i = 1
+  while (new RegExp(`\\b${escapeRegExp(candidate)}\\b`).test(code)) {
+    candidate = `${base}_${i}`
+    i++
+  }
+  return candidate
+}
+
+function expandArrayFromFill(code) {
+  return code.split('\n').map(line => {
+    const match = line.match(
+      /^(\s*)var\s+([A-Za-z_$][\w$]*)\s*=\s*Array\.from\s*\(\s*\{\s*length\s*:\s*([^}]+?)\s*\}\s*,\s*\(\s*\)\s*=>\s*new\s+Array\s*\(\s*(.+?)\s*\)\s*\.\s*fill\s*\(\s*(.+?)\s*\)\s*\)\s*;?\s*$/
+    )
+    if (!match) return line
+
+    const [, indent, arrayName, rowCountExpr, colCountExpr, fillExpr] = match
+    const rowName = uniqueInitIndexName(code, `${arrayName}_row`)
+    const colName = uniqueInitIndexName(code, `${arrayName}_col`)
+
+    return [
+      `${indent}var ${arrayName} = [];`,
+      `${indent}for (var ${rowName} = 0; ${rowName} < ${rowCountExpr.trim()}; ${rowName}++) {`,
+      `${indent}  ${arrayName}[${rowName}] = [];`,
+      `${indent}  for (var ${colName} = 0; ${colName} < ${colCountExpr.trim()}; ${colName}++) {`,
+      `${indent}    ${arrayName}[${rowName}][${colName}] = ${fillExpr.trim()};`,
+      `${indent}  }`,
+      `${indent}}`,
+    ].join('\n')
+  }).join('\n')
+}
+
 function expandArrayFill(code) {
   return code.split('\n').map(line => {
     const match = line.match(
@@ -111,6 +193,33 @@ function uniqueInitIndexName(code, arrayName) {
     i++
   }
   return candidate
+}
+
+function appendMissingFunctionInvocation(code) {
+  const functionMatch = code.match(/\bvar\s+([A-Za-z_$][\w$]*)\s*=\s*function\s*\(([^)]*)\)/)
+  if (!functionMatch) return code
+
+  const functionName = functionMatch[1]
+  const args = functionMatch[2]
+    .split(',')
+    .map(arg => arg.trim())
+    .filter(Boolean)
+
+  const escapedName = escapeRegExp(functionName)
+  const callPattern = new RegExp(`(^|[^\\w$])${escapedName}\\s*\\(`, 'g')
+  let callCount = 0
+  let match
+
+  while ((match = callPattern.exec(code)) !== null) {
+    callCount++
+  }
+
+  if (callCount > 0 || args.length === 0) return code
+
+  const availableArgs = args.filter(arg => new RegExp(`\\bvar\\s+${escapeRegExp(arg)}\\b`).test(code))
+  if (availableArgs.length !== args.length) return code
+
+  return `${code.trimEnd()}\n\nvar result = ${functionName}(${args.join(', ')});`
 }
 
 function fixObviousArrayBoundResult(code) {
@@ -153,11 +262,17 @@ function formatLine(line) {
   if (!text) return ''
 
   text = text
+    .replace(/\+\s+=/g, '+=')
+    .replace(/-\s+=/g, '-=')
+    .replace(/\*\s+=/g, '*=')
+    .replace(/\/\s+=/g, '/=')
+    .replace(/%\s+=/g, '%=')
+    .replace(/\s*([+\-*/%])=\s*/g, ' $1= ')
     .replace(/\bfor\s*\(/g, 'for (')
     .replace(/\bif\s*\(/g, 'if (')
     .replace(/\bwhile\s*\(/g, 'while (')
     .replace(/\)\s*\{/g, ') {')
-    .replace(/\s*(?<![<>=!])=(?![=>])\s*/g, ' = ')
+    .replace(/\s*(?<![<>=!+\-*/%&|^])=(?![=>])\s*/g, ' = ')
     .replace(/\s*;\s*/g, '; ')
     .replace(/\s*,\s*/g, ', ')
     .replace(/\[\s+/g, '[')

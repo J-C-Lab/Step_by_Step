@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useState } from 'react'
 import MonacoEditor from '@monaco-editor/react'
+import useSelectionStore from '../store/selectionStore.js'
 import useThemeStore from '../store/themeStore.js'
 import useTimelineStore from '../store/timelineStore.js'
 import { prepareCodeForVisualization } from '../utils/codePrep.js'
@@ -13,6 +14,7 @@ function injectHighlightStyle() {
   el.textContent = [
     '.current-line-highlight { background: rgba(255,200,0,0.18) !important; border-left: 3px solid #f59e0b !important; }',
     '.current-line-glyph::before { content: "▶"; color: #f59e0b; font-size: 10px; margin-left: 2px; }',
+    '.selected-variable-highlight { background: rgba(59,130,246,0.22) !important; border-bottom: 2px solid rgba(59,130,246,0.9); border-radius: 3px; }',
   ].join('\n')
   document.head.appendChild(el)
 }
@@ -20,9 +22,13 @@ function injectHighlightStyle() {
 export default function CodeEditor({ code, onChange }) {
   const { theme } = useThemeStore()
   const { timeline, currentStep } = useTimelineStore()
+  const selectedVariable = useSelectionStore(s => s.selectedVariable)
+  const setSelectedVariable = useSelectionStore(s => s.setSelectedVariable)
   const editorRef = useRef(null)
   const decorationsRef = useRef([])
+  const variableDecorationsRef = useRef([])
   const spaceKeyDisposableRef = useRef(null)
+  const mouseDownDisposableRef = useRef(null)
   const toastTimerRef = useRef(null)
   const [prepMessages, setPrepMessages] = useState([])
 
@@ -30,6 +36,8 @@ export default function CodeEditor({ code, onChange }) {
     return () => {
       spaceKeyDisposableRef.current?.dispose()
       spaceKeyDisposableRef.current = null
+      mouseDownDisposableRef.current?.dispose()
+      mouseDownDisposableRef.current = null
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
     }
   }, [])
@@ -56,6 +64,34 @@ export default function CodeEditor({ code, onChange }) {
     )
   }, [currentStep, timeline])
 
+  useEffect(() => {
+    const editor = editorRef.current
+    const model = editor?.getModel()
+    if (!editor || !model || !selectedVariable) {
+      if (editor) {
+        variableDecorationsRef.current = editor.deltaDecorations(variableDecorationsRef.current, [])
+      }
+      return
+    }
+
+    const matches = model.findMatches(
+      `\\b${escapeRegExp(selectedVariable)}\\b`,
+      false,
+      true,
+      true,
+      null,
+      false
+    )
+
+    variableDecorationsRef.current = editor.deltaDecorations(
+      variableDecorationsRef.current,
+      matches.map(match => ({
+        range: match.range,
+        options: { inlineClassName: 'selected-variable-highlight' },
+      }))
+    )
+  }, [selectedVariable, code])
+
   function handleMount(editor) {
     editorRef.current = editor
     injectHighlightStyle()
@@ -73,6 +109,17 @@ export default function CodeEditor({ code, onChange }) {
 
       e.preventDefault()
       editor.trigger('keyboard', 'type', { text: ' ' })
+    })
+
+    mouseDownDisposableRef.current?.dispose()
+    mouseDownDisposableRef.current = editor.onMouseDown(e => {
+      const position = e.target.position
+      const model = editor.getModel()
+      if (!position || !model) return
+
+      const word = model.getWordAtPosition(position)
+      if (!word?.word || !isIdentifier(word.word)) return
+      setSelectedVariable(word.word)
     })
   }
 
@@ -153,4 +200,16 @@ export default function CodeEditor({ code, onChange }) {
       </button>
     </div>
   )
+}
+
+function isIdentifier(value) {
+  const keywords = new Set([
+    'var', 'let', 'const', 'function', 'return', 'for', 'while', 'if', 'else',
+    'true', 'false', 'null', 'undefined', 'new', 'Array', 'from',
+  ])
+  return /^[A-Za-z_$][\w$]*$/.test(value) && !keywords.has(value)
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }

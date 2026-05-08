@@ -8,20 +8,28 @@ import ReactFlow, {
 } from 'reactflow'
 import 'reactflow/dist/style.css'
 import useGraphStore from '../store/graphStore.js'
+import useSelectionStore from '../store/selectionStore.js'
 
 // ─── Pointer node (tree / linkedlist) ─────────────────────────────────────
 
 function GlassNode({ data }) {
   const active      = data.isActive
+  const selected    = data.isSelected
   const activeColor = data.activeColor  ?? 'rgba(74,222,128,0.85)'
   const activeBg    = data.activeBg     ?? 'rgba(74,222,128,0.18)'
   const activeGlow  = data.activeGlow   ?? 'rgba(74,222,128,0.5)'
   const activeTxt   = data.activeTxt    ?? '#4ade80'
+  const normalTxt   = data.graphText    ?? '#e2e8f0'
+  const mutedTxt    = data.graphMuted   ?? 'rgba(148,163,184,0.6)'
+  const borderColor = selected ? '#facc15' : active ? activeColor : 'rgba(255,255,255,0.20)'
+  const bgColor     = selected ? 'rgba(250,204,21,0.16)' : active ? activeBg : 'rgba(255,255,255,0.09)'
+  const txtColor    = selected ? '#b45309' : active ? activeTxt : normalTxt
+  const glowColor   = selected ? 'rgba(250,204,21,0.55)' : activeGlow
 
   return (
     <div style={{
-      background:   active ? activeBg : 'rgba(255,255,255,0.09)',
-      border:       `2px solid ${active ? activeColor : 'rgba(255,255,255,0.20)'}`,
+      background:   bgColor,
+      border:       `2px solid ${borderColor}`,
       backdropFilter: 'blur(10px)',
       borderRadius: 12,
       padding:      '7px 18px',
@@ -30,9 +38,9 @@ function GlassNode({ data }) {
       fontSize:     14,
       fontWeight:   700,
       fontFamily:   'monospace',
-      color:        active ? activeTxt : '#e2e8f0',
-      boxShadow:    active
-        ? `0 0 18px ${activeGlow}, 0 2px 8px rgba(0,0,0,0.35)`
+      color:        txtColor,
+      boxShadow:    active || selected
+        ? `0 0 18px ${glowColor}, 0 2px 8px rgba(0,0,0,0.35)`
         : '0 2px 14px rgba(0,0,0,0.28)',
       transition:   'all 0.3s ease',
       userSelect:   'none',
@@ -48,7 +56,7 @@ function GlassNode({ data }) {
         <div style={{
           fontSize:    9,
           fontWeight:  400,
-          color:       active ? `${activeTxt}b3` : 'rgba(148,163,184,0.6)',
+          color:       active ? `${activeTxt}b3` : mutedTxt,
           marginTop:   3,
           letterSpacing: '0.04em',
         }}>
@@ -103,24 +111,32 @@ const TYPE_LABEL_COLOR = {
 
 function CardNode({ data }) {
   const active      = data.isActive
+  const selected    = data.isSelected
   const activeGlow  = data.activeGlow  ?? 'rgba(74,222,128,0.5)'
+  const textColor   = data.graphText   ?? '#e2e8f0'
+  const mutedColor  = data.graphMuted  ?? '#94a3b8'
+  const cardBg      = data.graphCardBg ?? 'rgba(255,255,255,0.05)'
+  const activeCardBg = data.graphCardActiveBg ?? 'rgba(255,255,255,0.10)'
+  const cardWidth   = data.cardWidth ?? 260
   const borderColor = active
     ? (data.activeColor ?? 'rgba(74,222,128,0.85)')
     : (TYPE_BORDER[data.structType] ?? 'rgba(255,255,255,0.15)')
+  const finalBorderColor = selected ? '#facc15' : borderColor
   const labelColor  = TYPE_LABEL_COLOR[data.structType] ?? '#94a3b8'
   const typeLabel   = data.structType?.toUpperCase() ?? '?'
 
   return (
     <div style={{
-      background:   active ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.05)',
-      border:       `1.5px solid ${borderColor}`,
+      background:   selected ? 'rgba(250,204,21,0.14)' : active ? activeCardBg : cardBg,
+      border:       `1.5px solid ${finalBorderColor}`,
       borderRadius: 14,
       padding:      '8px 12px',
       minWidth:     130,
-      maxWidth:     260,
+      width:        cardWidth,
+      boxSizing:    'border-box',
       fontFamily:   'monospace',
-      boxShadow:    active
-        ? `0 0 18px ${activeGlow}, 0 2px 10px rgba(0,0,0,0.3)`
+      boxShadow:    active || selected
+        ? `0 0 18px ${selected ? 'rgba(250,204,21,0.45)' : activeGlow}, 0 2px 10px rgba(0,0,0,0.3)`
         : '0 2px 10px rgba(0,0,0,0.2)',
       transition:   'all 0.3s ease',
       userSelect:   'none',
@@ -128,7 +144,7 @@ function CardNode({ data }) {
     }}>
       {/* Header row */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-        <span style={{ fontSize: 11, fontWeight: 700, color: '#e2e8f0' }}>{data.name}</span>
+        <span style={{ fontSize: 11, fontWeight: 700, color: textColor }}>{data.name}</span>
         <span style={{
           fontSize: 9, fontWeight: 600,
           color: labelColor,
@@ -139,7 +155,14 @@ function CardNode({ data }) {
         }}>{typeLabel}{data.meta?.op ? ` · ${data.meta.op}` : ''}</span>
       </div>
       {/* Content */}
-      <CardContent structType={data.structType} value={data.value} labelColor={labelColor} />
+      <CardContent
+        structType={data.structType}
+        value={data.value}
+        labelColor={labelColor}
+        textColor={textColor}
+        mutedColor={mutedColor}
+        maxContentWidth={Math.max(100, cardWidth - 24)}
+      />
       <Handle
         type="target"
         position={Position.Top}
@@ -154,12 +177,12 @@ function CardNode({ data }) {
   )
 }
 
-function CardContent({ structType, value, labelColor }) {
+function CardContent({ structType, value, labelColor, textColor = '#e2e8f0', mutedColor = '#94a3b8', maxContentWidth = 240 }) {
   if (structType === 'primitive') {
     return (
-      <div style={{ fontSize: 15, fontWeight: 700, color: '#e2e8f0' }}>
+      <div style={{ fontSize: 15, fontWeight: 700, color: textColor }}>
         {fmtVal(value)}
-        <span style={{ fontSize: 9, color: '#64748b', marginLeft: 6 }}>{typeof value}</span>
+        <span style={{ fontSize: 9, color: mutedColor, marginLeft: 6 }}>{typeof value}</span>
       </div>
     )
   }
@@ -168,39 +191,70 @@ function CardContent({ structType, value, labelColor }) {
     const entries = value && typeof value === 'object'
       ? Object.entries(value).filter(([k]) => k !== '__id__')
       : []
-    if (entries.length === 0) return <span style={{ fontSize: 11, color: '#475569' }}>&#123; &#125;</span>
+    if (entries.length === 0) return <span style={{ fontSize: 11, color: mutedColor }}>&#123; &#125;</span>
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
         {entries.slice(0, 8).map(([k, v]) => (
           <div key={k} style={{ display: 'flex', gap: 6, fontSize: 11 }}>
             <span style={{ color: labelColor, minWidth: 40, fontWeight: 600 }}>{k}</span>
-            <span style={{ color: '#94a3b8' }}>:</span>
-            <span style={{ color: '#e2e8f0' }}>{fmtVal(v)}</span>
+            <span style={{ color: mutedColor }}>:</span>
+            <span style={{ color: textColor }}>{fmtVal(v)}</span>
           </div>
         ))}
-        {entries.length > 8 && <span style={{ fontSize: 9, color: '#475569' }}>+{entries.length - 8} more</span>}
+        {entries.length > 8 && <span style={{ fontSize: 9, color: mutedColor }}>+{entries.length - 8} more</span>}
       </div>
     )
   }
 
   if (structType === 'matrix') {
     const rows = Array.isArray(value) ? value : []
+    const visibleRows = rows.slice(0, 8)
+    const maxCols = visibleRows.reduce(
+      (max, row) => Math.max(max, Array.isArray(row) ? row.length : 0),
+      0
+    )
+    const visibleCols = Math.min(maxCols, 12)
+    const cellSize = 34
+    const rowLabelWidth = 54
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-        {rows.slice(0, 6).map((row, ri) => (
-          <div key={ri} style={{ display: 'flex', gap: 3 }}>
-            {Array.isArray(row) && row.slice(0, 8).map((v, ci) => (
-              <span key={ci} style={{
-                fontSize: 10, fontWeight: 700, color: '#e2e8f0',
-                background: 'rgba(255,255,255,0.07)',
-                borderRadius: 4, padding: '1px 4px',
-                minWidth: 18, textAlign: 'center',
-              }}>{fmtVal(v)}</span>
-            ))}
-            {Array.isArray(row) && row.length > 8 && <span style={{ fontSize: 9, color: '#475569' }}>…</span>}
+      <div style={{ maxWidth: maxContentWidth, overflow: 'auto', paddingBottom: 2 }}>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: `${rowLabelWidth}px repeat(${visibleCols}, ${cellSize}px)`,
+            gridAutoRows: `${cellSize}px`,
+            alignItems: 'stretch',
+          }}
+        >
+          <div />
+          {Array.from({ length: visibleCols }).map((_, ci) => (
+            <MatrixAxisLabel key={`col-${ci}`} mutedColor={mutedColor}>
+              j={ci}
+            </MatrixAxisLabel>
+          ))}
+
+          {visibleRows.map((row, ri) => (
+            <React.Fragment key={`row-${ri}`}>
+              <MatrixAxisLabel mutedColor={mutedColor} align="right">
+                {getMatrixRowLabel(ri)}
+              </MatrixAxisLabel>
+              {Array.from({ length: visibleCols }).map((_, ci) => (
+                <MatrixCell
+                  key={`${ri}-${ci}`}
+                  value={Array.isArray(row) ? row[ci] : undefined}
+                  textColor={textColor}
+                  mutedColor={mutedColor}
+                  labelColor={labelColor}
+                />
+              ))}
+            </React.Fragment>
+          ))}
+        </div>
+        {(rows.length > visibleRows.length || maxCols > visibleCols) && (
+          <div style={{ marginTop: 4, fontSize: 9, color: mutedColor }}>
+            showing {visibleRows.length}/{rows.length} rows, {visibleCols}/{maxCols} cols
           </div>
-        ))}
-        {rows.length > 6 && <span style={{ fontSize: 9, color: '#475569' }}>+{rows.length - 6} rows</span>}
+        )}
       </div>
     )
   }
@@ -210,7 +264,7 @@ function CardContent({ structType, value, labelColor }) {
   const isStack = structType === 'stack'
   const isQueue = structType === 'queue'
 
-  if (arr.length === 0) return <span style={{ fontSize: 11, color: '#475569' }}>[ empty ]</span>
+  if (arr.length === 0) return <span style={{ fontSize: 11, color: mutedColor }}>[ empty ]</span>
 
   if (isStack) {
     const reversed = [...arr].reverse()
@@ -221,39 +275,93 @@ function CardContent({ structType, value, labelColor }) {
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
             background: ri === 0 ? 'rgba(167,139,250,0.12)' : 'rgba(255,255,255,0.04)',
             border:     ri === 0 ? '1px solid rgba(167,139,250,0.3)' : '1px solid rgba(255,255,255,0.06)',
-            borderRadius: 6, padding: '2px 7px', fontSize: 12, fontWeight: 700, color: '#e2e8f0',
+            borderRadius: 6, padding: '2px 7px', fontSize: 12, fontWeight: 700, color: textColor,
           }}>
             {fmtVal(v)}
             {ri === 0 && <span style={{ fontSize: 9, color: '#a78bfa', marginLeft: 6 }}>top</span>}
           </div>
         ))}
-        {arr.length > 8 && <span style={{ fontSize: 9, color: '#475569' }}>+{arr.length - 8} more</span>}
+        {arr.length > 8 && <span style={{ fontSize: 9, color: mutedColor }}>+{arr.length - 8} more</span>}
       </div>
     )
   }
 
   // array or queue — horizontal cells
   return (
-    <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
+    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', maxWidth: maxContentWidth }}>
       {arr.slice(0, 12).map((v, i) => (
         <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
           {isQueue && (
-            <span style={{ fontSize: 8, color: labelColor, marginBottom: 1 }}>
+            <span style={{ fontSize: 8, color: `${labelColor}99`, marginBottom: 2 }}>
               {i === 0 ? 'F' : i === arr.length - 1 ? 'R' : ''}
             </span>
           )}
           <span style={{
-            fontSize: 11, fontWeight: 700, color: '#e2e8f0',
-            background: 'rgba(255,255,255,0.07)',
-            borderRadius: 5, padding: '2px 6px',
-            minWidth: 20, textAlign: 'center',
+            fontSize: 13,
+            fontWeight: 800,
+            color: textColor,
+            background: `${labelColor}18`,
+            border: `1.5px solid ${labelColor}88`,
+            borderRadius: 7,
+            padding: '4px 8px',
+            minWidth: 28,
+            textAlign: 'center',
+            boxShadow: `0 0 10px ${labelColor}22`,
           }}>{fmtVal(v)}</span>
-          {!isQueue && <span style={{ fontSize: 8, color: '#475569' }}>{i}</span>}
+          {!isQueue && <span style={{ fontSize: 9, color: `${mutedColor}88`, marginTop: 3 }}>{i}</span>}
         </div>
       ))}
-      {arr.length > 12 && <span style={{ fontSize: 9, color: '#475569', alignSelf: 'center' }}>+{arr.length - 12}</span>}
+      {arr.length > 12 && <span style={{ fontSize: 9, color: mutedColor, alignSelf: 'center' }}>+{arr.length - 12}</span>}
     </div>
   )
+}
+
+function MatrixAxisLabel({ children, mutedColor, align = 'center' }) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: align === 'right' ? 'flex-end' : 'center',
+        paddingRight: align === 'right' ? 8 : 0,
+        fontSize: 10,
+        fontWeight: 700,
+        color: mutedColor,
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {children}
+    </div>
+  )
+}
+
+function MatrixCell({ value, textColor, mutedColor, labelColor }) {
+  const isTrue = value === true
+  const isFalse = value === false
+  const display = isTrue ? 'T' : isFalse ? 'F' : value === undefined ? '' : fmtVal(value)
+
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        border: `1px solid ${mutedColor}55`,
+        background: isTrue ? 'rgba(34,197,94,0.13)' : 'rgba(148,163,184,0.08)',
+        color: isTrue ? '#16a34a' : isFalse ? textColor : mutedColor,
+        fontSize: 12,
+        fontWeight: 800,
+        boxShadow: isTrue ? `inset 0 0 0 1px ${labelColor}33` : 'none',
+      }}
+    >
+      {display}
+    </div>
+  )
+}
+
+function getMatrixRowLabel(index) {
+  if (index === 0) return 'i=0'
+  return `i=${index}`
 }
 
 // ─── Module-level stable node types map ───────────────────────────────────
@@ -280,8 +388,11 @@ function GraphCanvasInner({ theme, fallbackStructures }) {
   const nodes          = useGraphStore(s => s.nodes)
   const edges          = useGraphStore(s => s.edges)
   const onNodesChange  = useGraphStore(s => s.onNodesChange)
-  const { fitView }    = useReactFlow()
+  const selectedVariable = useSelectionStore(s => s.selectedVariable)
+  const setSelectedVariable = useSelectionStore(s => s.setSelectedVariable)
+  const { fitView, fitBounds } = useReactFlow()
   const [ready, setReady] = useState(false)
+  const [didInitialFit, setDidInitialFit] = useState(false)
   const liveFlow = useMemo(
     () => buildLiveFlowFromStructures(fallbackStructures),
     [fallbackStructures]
@@ -296,32 +407,55 @@ function GraphCanvasInner({ theme, fallbackStructures }) {
     return () => cancelAnimationFrame(id)
   }, [])
 
-  // Fit view whenever nodes change and container is ready
+  // Fit once when the first visual nodes appear. After that, preserve the
+  // user's zoom/pan across step changes.
   useEffect(() => {
-    if (!ready || renderNodes.length === 0) return
+    if (!ready || renderNodes.length === 0 || didInitialFit) return
     const id1 = requestAnimationFrame(() => {
       const id2 = requestAnimationFrame(() => {
         fitView({ padding: 0.2, duration: 300 })
+        setDidInitialFit(true)
       })
       return () => cancelAnimationFrame(id2)
     })
     return () => cancelAnimationFrame(id1)
-  }, [renderNodes, ready, fitView])
+  }, [renderNodes.length, ready, didInitialFit, fitView])
+
+  useEffect(() => {
+    if (!ready || !selectedVariable || renderNodes.length === 0) return
+
+    const targetNode = renderNodes.find(n => {
+      return getNodeVariableName(n) === selectedVariable
+    })
+
+    if (!targetNode?.position) return
+
+    const bounds = getNodeFocusBounds(targetNode)
+    requestAnimationFrame(() => {
+      fitBounds(bounds, { padding: 0.35, duration: 360 })
+    })
+  }, [selectedVariable, renderNodes, ready, fitBounds])
 
   // Inject theme tokens into glassNode data
   const themedNodes = useMemo(() => renderNodes.map(n => {
+    const isLightTheme = theme.id === 'cupertino'
     if (n.type !== 'glassNode' && n.type !== 'cardNode') return n
     return {
       ...n,
       data: {
         ...n.data,
+        isSelected: getNodeVariableName(n) === selectedVariable,
+        graphText: isLightTheme ? '#1f2937' : '#e2e8f0',
+        graphMuted: isLightTheme ? '#64748b' : '#94a3b8',
+        graphCardBg: isLightTheme ? 'rgba(255,255,255,0.92)' : 'rgba(255,255,255,0.05)',
+        graphCardActiveBg: isLightTheme ? 'rgba(239,246,255,0.96)' : 'rgba(255,255,255,0.10)',
         activeColor: theme.graphActive    ?? 'rgba(74,222,128,0.85)',
         activeBg:    theme.graphActiveBg  ?? 'rgba(74,222,128,0.18)',
         activeGlow:  theme.graphGlow      ?? 'rgba(74,222,128,0.5)',
         activeTxt:   theme.graphActiveTxt ?? '#4ade80',
       },
     }
-  }), [renderNodes, theme])
+  }), [renderNodes, theme, selectedVariable])
 
   return (
     <div
@@ -333,14 +467,19 @@ function GraphCanvasInner({ theme, fallbackStructures }) {
         edges={renderEdges}
         nodeTypes={NODE_TYPES}
         onNodesChange={useLiveFlow ? undefined : onNodesChange}
-        fitView
+        onNodeClick={(_, node) => {
+          const nodeName = node.data?.name ?? node.data?.varName
+          if (nodeName) setSelectedVariable(nodeName)
+        }}
         fitViewOptions={{ padding: 0.2 }}
         nodesDraggable={true}
         nodesConnectable={false}
         elementsSelectable={false}
-        zoomOnScroll={false}
+        zoomOnScroll={true}
+        zoomOnPinch={true}
         panOnScroll={false}
         panOnDrag={true}
+        preventScrolling={false}
         proOptions={{ hideAttribution: true }}
         style={{ background: 'transparent', width: '100%', height: '100%' }}
       >
@@ -351,6 +490,35 @@ function GraphCanvasInner({ theme, fallbackStructures }) {
           variant="dots"
         />
       </ReactFlow>
+
+      {themedNodes.length > 0 && (
+        <button
+          type="button"
+          onClick={() => {
+            fitView({ padding: 0.2, duration: 300 })
+            setDidInitialFit(true)
+          }}
+          style={{
+            position: 'absolute',
+            top: 10,
+            right: 10,
+            zIndex: 20,
+            border: '1px solid rgba(148,163,184,0.32)',
+            borderRadius: 999,
+            padding: '5px 10px',
+            fontSize: 11,
+            fontWeight: 700,
+            color: '#e2e8f0',
+            background: 'rgba(15,23,42,0.72)',
+            backdropFilter: 'blur(10px)',
+            boxShadow: '0 6px 18px rgba(0,0,0,0.22)',
+            cursor: 'pointer',
+          }}
+          title="缩放并平移到完整视图"
+        >
+          Fit View
+        </button>
+      )}
 
       {themedNodes.length === 0 && fallbackStructures.length > 0 && (
         <FallbackCanvas structures={fallbackStructures} theme={theme} />
@@ -487,13 +655,28 @@ function buildLiveFlowFromStructures(structures) {
     }
   }
 
-  // Render non-pointer structures as persistent-like cards in the same canvas.
+  // Render non-pointer structures as persistent-like cards. Cards are laid out
+  // with estimated dimensions so wide arrays wrap instead of covering neighbors.
   let cx = 40
+  let cy = Math.max(
+    120,
+    nodes.reduce((m, n) => Math.max(m, (n.position?.y ?? 0) + 120), 0)
+  )
+  let rowHeight = 0
+  const rowStartX = 40
+  const maxRowWidth = 900
   const baseY = Math.max(
     120,
     nodes.reduce((m, n) => Math.max(m, (n.position?.y ?? 0) + 120), 0)
   )
   for (const s of cards) {
+    const size = estimateCardSize(s)
+    if (cx > rowStartX && cx + size.width > rowStartX + maxRowWidth) {
+      cx = rowStartX
+      cy += rowHeight + 36
+      rowHeight = 0
+    }
+
     nodes.push({
       id: `live_card__${s.name}`,
       type: 'cardNode',
@@ -504,10 +687,13 @@ function buildLiveFlowFromStructures(structures) {
         value: s.value,
         meta: s.meta ?? null,
         isActive: true,
+        cardWidth: size.width,
+        cardHeight: size.height,
       },
-      position: { x: cx, y: baseY },
+      position: { x: cx, y: cy || baseY },
     })
-    cx += 220
+    cx += size.width + 36
+    rowHeight = Math.max(rowHeight, size.height)
   }
 
   return { nodes, edges }
@@ -518,6 +704,68 @@ function getPointerVal(node) {
   if (node.val !== undefined) return String(node.val)
   if (node.value !== undefined) return String(node.value)
   return '?'
+}
+
+function estimateCardSize(structure) {
+  if (!structure) return { width: 180, height: 110 }
+
+  if (structure.type === 'array' || structure.type === 'queue') {
+    const len = Array.isArray(structure.value) ? structure.value.length : 0
+    const columns = Math.max(1, Math.min(len, 6))
+    const rows = Math.max(1, Math.ceil(Math.min(len, 12) / 6))
+    return {
+      width: clamp(150, columns * 44 + 44, 340),
+      height: 76 + rows * 48,
+    }
+  }
+
+  if (structure.type === 'stack') {
+    const len = Array.isArray(structure.value) ? structure.value.length : 0
+    return { width: 180, height: 72 + Math.min(len, 8) * 30 }
+  }
+
+  if (structure.type === 'matrix') {
+    const rows = Array.isArray(structure.value) ? structure.value.length : 0
+    const cols = Array.isArray(structure.value?.[0]) ? structure.value[0].length : 0
+    const visibleCols = Math.min(cols, 12)
+    const visibleRows = Math.min(rows, 8)
+    return {
+      width: clamp(260, 54 + visibleCols * 34 + 44, 560),
+      height: 92 + visibleRows * 34,
+    }
+  }
+
+  if (structure.type === 'object') return { width: 220, height: 150 }
+  if (structure.type === 'primitive') return { width: 170, height: 90 }
+  return { width: 190, height: 110 }
+}
+
+function clamp(min, value, max) {
+  return Math.max(min, Math.min(value, max))
+}
+
+function getNodeVariableName(node) {
+  if (!node) return null
+  if (node.data?.name) return node.data.name
+  if (node.data?.varName) return node.data.varName
+  if (typeof node.id === 'string' && node.id.startsWith('live_card__')) {
+    return node.id.replace(/^live_card__/, '')
+  }
+  if (typeof node.id === 'string' && node.id.startsWith('card__')) {
+    return node.id.replace(/^card__/, '')
+  }
+  return null
+}
+
+function getNodeFocusBounds(node) {
+  const width = node.width ?? node.data?.cardWidth ?? (node.type === 'cardNode' ? 240 : 110)
+  const height = node.height ?? node.data?.cardHeight ?? (node.type === 'cardNode' ? 140 : 90)
+  return {
+    x: (node.position?.x ?? 0) - 40,
+    y: (node.position?.y ?? 0) - 40,
+    width: width + 80,
+    height: height + 80,
+  }
 }
 
 function makeEdge(source, target, label) {
