@@ -1,7 +1,8 @@
-import React, { useRef, useEffect } from 'react'
+import React, { useRef, useEffect, useState } from 'react'
 import MonacoEditor from '@monaco-editor/react'
 import useThemeStore from '../store/themeStore.js'
 import useTimelineStore from '../store/timelineStore.js'
+import { prepareCodeForVisualization } from '../utils/codePrep.js'
 
 // Inject line-highlight CSS once
 let styleInjected = false
@@ -22,11 +23,14 @@ export default function CodeEditor({ code, onChange }) {
   const editorRef = useRef(null)
   const decorationsRef = useRef([])
   const spaceKeyDisposableRef = useRef(null)
+  const toastTimerRef = useRef(null)
+  const [prepMessages, setPrepMessages] = useState([])
 
   useEffect(() => {
     return () => {
       spaceKeyDisposableRef.current?.dispose()
       spaceKeyDisposableRef.current = null
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
     }
   }, [])
 
@@ -72,8 +76,24 @@ export default function CodeEditor({ code, onChange }) {
     })
   }
 
+  function handlePrepareCode() {
+    const result = prepareCodeForVisualization(code)
+    onChange(result.code)
+    setPrepMessages(result.messages)
+
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
+    toastTimerRef.current = setTimeout(() => {
+      setPrepMessages([])
+      toastTimerRef.current = null
+    }, 5200)
+
+    requestAnimationFrame(() => {
+      editorRef.current?.focus()
+    })
+  }
+
   return (
-    <div className="flex-1 min-h-0 overflow-hidden rounded-2xl mx-3 mb-3">
+    <div className="relative flex-1 min-h-0 overflow-hidden rounded-2xl mx-3 mb-3">
       <MonacoEditor
         height="100%"
         language="javascript"
@@ -102,6 +122,35 @@ export default function CodeEditor({ code, onChange }) {
           glyphMargin: true,
         }}
       />
+
+      {prepMessages.length > 0 && (
+        <div className={`
+          absolute right-3 bottom-14 z-20 max-w-[360px]
+          rounded-2xl px-3 py-2 text-xs shadow-lg backdrop-blur-xl
+          ${theme.panelBg} ${theme.text}
+        `}>
+          <div className="font-semibold mb-1">已适配为可视化脚本</div>
+          <ul className={`space-y-1 ${theme.subText}`}>
+            {prepMessages.slice(0, 4).map((msg, i) => (
+              <li key={i}>- {msg}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <button
+        type="button"
+        onClick={handlePrepareCode}
+        className={`
+          absolute right-3 bottom-3 z-20
+          rounded-full px-3 py-1.5 text-xs font-semibold shadow-lg
+          transition-all duration-150 active:scale-95
+          ${theme.btnActive}
+        `}
+        title="将当前代码整理为更适合执行沙盒和可视化的脚本"
+      >
+        适配可视化
+      </button>
     </div>
   )
 }
