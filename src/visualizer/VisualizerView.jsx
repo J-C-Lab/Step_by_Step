@@ -1,4 +1,4 @@
-import React, { useMemo, useEffect, useState } from 'react'
+import React, { useMemo, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import ReactFlow, {
   Background,
   Handle,
@@ -401,6 +401,16 @@ function GraphCanvasInner({ theme, fallbackStructures }) {
   const renderNodes = useLiveFlow ? liveFlow.nodes : nodes
   const renderEdges = useLiveFlow ? liveFlow.edges : edges
 
+  // ── Stable refs so selection effect never has stale closures ─────────────
+  // useLayoutEffect runs synchronously after DOM mutations, before paint,
+  // so these refs are always up-to-date when any useEffect fires.
+  const fitBoundsRef   = useRef(fitBounds)
+  const fitViewRef     = useRef(fitView)
+  const renderNodesRef = useRef(renderNodes)
+  useLayoutEffect(() => { fitBoundsRef.current   = fitBounds   })
+  useLayoutEffect(() => { fitViewRef.current     = fitView     })
+  useLayoutEffect(() => { renderNodesRef.current = renderNodes })
+
   // Mark ready after first paint
   useEffect(() => {
     const id = requestAnimationFrame(() => setReady(true))
@@ -413,28 +423,33 @@ function GraphCanvasInner({ theme, fallbackStructures }) {
     if (!ready || renderNodes.length === 0 || didInitialFit) return
     const id1 = requestAnimationFrame(() => {
       const id2 = requestAnimationFrame(() => {
-        fitView({ padding: 0.2, duration: 300 })
+        fitViewRef.current({ padding: 0.2, duration: 300 })
         setDidInitialFit(true)
       })
       return () => cancelAnimationFrame(id2)
     })
     return () => cancelAnimationFrame(id1)
-  }, [renderNodes.length, ready, didInitialFit, fitView])
+  }, [renderNodes.length, ready, didInitialFit])
 
+  // ── Focus selected variable ───────────────────────────────────────────────
+  // Depends ONLY on selectedVariable + ready.
+  // renderNodes and fitBounds are read from stable refs, so this effect is
+  // never re-triggered by routine re-renders / step changes.
   useEffect(() => {
-    if (!ready || !selectedVariable || renderNodes.length === 0) return
+    if (!ready || !selectedVariable) return
 
-    const targetNode = renderNodes.find(n => {
-      return getNodeVariableName(n) === selectedVariable
-    })
+    const nodes = renderNodesRef.current
+    if (!nodes || nodes.length === 0) return
 
+    const targetNode = nodes.find(n => getNodeVariableName(n) === selectedVariable)
     if (!targetNode?.position) return
 
     const bounds = getNodeFocusBounds(targetNode)
-    requestAnimationFrame(() => {
-      fitBounds(bounds, { padding: 0.35, duration: 360 })
+    const frameId = requestAnimationFrame(() => {
+      fitBoundsRef.current?.(bounds, { padding: 0.35, duration: 360 })
     })
-  }, [selectedVariable, renderNodes, ready, fitBounds])
+    return () => cancelAnimationFrame(frameId)
+  }, [selectedVariable, ready])
 
   // Inject theme tokens into glassNode data
   const themedNodes = useMemo(() => renderNodes.map(n => {
@@ -537,11 +552,18 @@ function GraphCanvas({ theme, fallbackStructures }) {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
+const INF_SENTINEL  =  1_000_000_000
+const NINF_SENTINEL = -1_000_000_000
+
 function fmtVal(v) {
   if (v === null)      return 'null'
   if (v === undefined) return 'undef'
   if (typeof v === 'string')  return `"${v}"`
   if (typeof v === 'object')  return Array.isArray(v) ? `[…${v.length}]` : '{…}'
+  if (typeof v === 'number') {
+    if (v === Infinity  || v >= INF_SENTINEL)  return '∞'
+    if (v === -Infinity || v <= NINF_SENTINEL) return '-∞'
+  }
   return String(v)
 }
 

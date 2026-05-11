@@ -60,10 +60,13 @@ export function prepareCodeForVisualization(code) {
   }
 
   const beforeInvokeFix = nextCode
-  nextCode = appendMissingFunctionInvocation(nextCode)
+  const invokeResult = appendMissingFunctionInvocation(nextCode)
+  nextCode = invokeResult.code
   if (nextCode !== beforeInvokeFix) {
-    messages.push('检测到只定义函数未调用，已追加 var result = fn(args) 以进入算法内部。')
+    messages.push(invokeResult.message)
   }
+
+  nextCode = replaceInfinity(nextCode)
 
   const beforeFormat = nextCode
   nextCode = lightFormat(nextCode)
@@ -197,7 +200,7 @@ function uniqueInitIndexName(code, arrayName) {
 
 function appendMissingFunctionInvocation(code) {
   const functionMatch = code.match(/\bvar\s+([A-Za-z_$][\w$]*)\s*=\s*function\s*\(([^)]*)\)/)
-  if (!functionMatch) return code
+  if (!functionMatch) return { code, message: '' }
 
   const functionName = functionMatch[1]
   const args = functionMatch[2]
@@ -208,18 +211,73 @@ function appendMissingFunctionInvocation(code) {
   const escapedName = escapeRegExp(functionName)
   const callPattern = new RegExp(`(^|[^\\w$])${escapedName}\\s*\\(`, 'g')
   let callCount = 0
-  let match
+  let m
 
-  while ((match = callPattern.exec(code)) !== null) {
+  while ((m = callPattern.exec(code)) !== null) {
     callCount++
   }
 
-  if (callCount > 0 || args.length === 0) return code
+  if (callCount > 0 || args.length === 0) return { code, message: '' }
 
-  const availableArgs = args.filter(arg => new RegExp(`\\bvar\\s+${escapeRegExp(arg)}\\b`).test(code))
-  if (availableArgs.length !== args.length) return code
+  // For each param not already defined globally, generate a sample value
+  const additions = []
+  for (const arg of args) {
+    const alreadyDefined = new RegExp(`\\bvar\\s+${escapeRegExp(arg)}\\b`).test(code)
+    if (!alreadyDefined) {
+      additions.push(`var ${arg} = ${getDefaultArgValue(arg)};`)
+    }
+  }
 
-  return `${code.trimEnd()}\n\nvar result = ${functionName}(${args.join(', ')});`
+  const prefix = additions.length > 0 ? '\n' + additions.join('\n') + '\n' : ''
+  const newCode = `${code.trimEnd()}${prefix}\nvar result = ${functionName}(${args.join(', ')});`
+  const note = additions.length > 0
+    ? `检测到只定义函数未调用，已自动添加示例输入（${additions.map(l => l.split('=')[0].replace('var','').trim()).join(', ')}）并追加调用。请按需修改示例数据。`
+    : '检测到只定义函数未调用，已追加 var result = fn(args) 以进入算法内部。'
+  return { code: newCode, message: note }
+}
+
+/**
+ * Infer a sensible default example value for a function parameter by its name.
+ */
+function getDefaultArgValue(name) {
+  const lower = name.toLowerCase()
+
+  if (lower === 'grid' || lower === 'matrix') {
+    return '[[1, 3, 1], [1, 5, 1], [4, 2, 1]]'
+  }
+  if (lower === 'nums' || lower === 'arr' || lower === 'array' || lower === 'values' || lower === 'prices') {
+    return '[1, 5, 11, 5]'
+  }
+  if (lower === 'weights' || lower === 'wt') {
+    return '[1, 2, 3, 5]'
+  }
+  if (lower === 's' || lower === 'str' || lower === 'text') {
+    return '"abcde"'
+  }
+  if (lower === 't') {
+    return '"ace"'
+  }
+  if (lower === 'n' || lower === 'capacity' || lower === 'target') {
+    return '5'
+  }
+  if (lower === 'm') {
+    return '3'
+  }
+  if (lower === 'k') {
+    return '2'
+  }
+  // generic fallback
+  return '5'
+}
+
+/**
+ * Replace bare Infinity with a large-but-finite sentinel (1e15) so the
+ * js-interpreter never has to deal with IEEE infinity in array cells.
+ * We only replace Infinity that appears as a standalone token (not part of an
+ * identifier), and we leave Number.POSITIVE_INFINITY / -Infinity alone.
+ */
+function replaceInfinity(code) {
+  return code.replace(/(?<![.\w])Infinity(?!\w)/g, '1000000000')
 }
 
 function fixObviousArrayBoundResult(code) {
