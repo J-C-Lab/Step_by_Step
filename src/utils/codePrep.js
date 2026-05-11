@@ -147,24 +147,53 @@ function uniqueLoopIndexName(code, collectionName) {
 
 function expandArrayFromFill(code) {
   return code.split('\n').map(line => {
-    const match = line.match(
+    // Pattern A: Array.from({length: N}, () => new Array(M).fill(V))
+    // All rows have the same fixed column count.
+    const fixedMatch = line.match(
       /^(\s*)var\s+([A-Za-z_$][\w$]*)\s*=\s*Array\.from\s*\(\s*\{\s*length\s*:\s*([^}]+?)\s*\}\s*,\s*\(\s*\)\s*=>\s*new\s+Array\s*\(\s*(.+?)\s*\)\s*\.\s*fill\s*\(\s*(.+?)\s*\)\s*\)\s*;?\s*$/
     )
-    if (!match) return line
+    if (fixedMatch) {
+      const [, indent, arrayName, rowCountExpr, colCountExpr, fillExpr] = fixedMatch
+      const rowName = uniqueInitIndexName(code, `${arrayName}_row`)
+      const colName = uniqueInitIndexName(code, `${arrayName}_col`)
+      return [
+        `${indent}var ${arrayName} = [];`,
+        `${indent}for (var ${rowName} = 0; ${rowName} < ${rowCountExpr.trim()}; ${rowName}++) {`,
+        `${indent}  ${arrayName}[${rowName}] = [];`,
+        `${indent}  for (var ${colName} = 0; ${colName} < ${colCountExpr.trim()}; ${colName}++) {`,
+        `${indent}    ${arrayName}[${rowName}][${colName}] = ${fillExpr.trim()};`,
+        `${indent}  }`,
+        `${indent}}`,
+      ].join('\n')
+    }
 
-    const [, indent, arrayName, rowCountExpr, colCountExpr, fillExpr] = match
-    const rowName = uniqueInitIndexName(code, `${arrayName}_row`)
-    const colName = uniqueInitIndexName(code, `${arrayName}_col`)
+    // Pattern B: Array.from({length: N}, (_, i) => new Array(EXPR_WITH_i).fill(V))
+    // Row column count depends on the row index (e.g. triangular / jagged arrays).
+    // Captures the ignored first param (any name) and the index param name.
+    const jaggedMatch = line.match(
+      /^(\s*)var\s+([A-Za-z_$][\w$]*)\s*=\s*Array\.from\s*\(\s*\{\s*length\s*:\s*([^}]+?)\s*\}\s*,\s*\(\s*[^,)]*,\s*([A-Za-z_$][\w$]*)\s*\)\s*=>\s*new\s+Array\s*\(\s*(.+?)\s*\)\s*\.\s*fill\s*\(\s*(.+?)\s*\)\s*\)\s*;?\s*$/
+    )
+    if (jaggedMatch) {
+      const [, indent, arrayName, rowCountExpr, idxParam, colCountExpr, fillExpr] = jaggedMatch
+      const rowName = uniqueInitIndexName(code, `${arrayName}_row`)
+      const colName = uniqueInitIndexName(code, `${arrayName}_col`)
+      // Replace the arrow-function index parameter with the generated row loop variable.
+      const colExpr = colCountExpr.trim().replace(
+        new RegExp(`\\b${escapeRegExp(idxParam)}\\b`, 'g'),
+        rowName
+      )
+      return [
+        `${indent}var ${arrayName} = [];`,
+        `${indent}for (var ${rowName} = 0; ${rowName} < ${rowCountExpr.trim()}; ${rowName}++) {`,
+        `${indent}  ${arrayName}[${rowName}] = [];`,
+        `${indent}  for (var ${colName} = 0; ${colName} < ${colExpr}; ${colName}++) {`,
+        `${indent}    ${arrayName}[${rowName}][${colName}] = ${fillExpr.trim()};`,
+        `${indent}  }`,
+        `${indent}}`,
+      ].join('\n')
+    }
 
-    return [
-      `${indent}var ${arrayName} = [];`,
-      `${indent}for (var ${rowName} = 0; ${rowName} < ${rowCountExpr.trim()}; ${rowName}++) {`,
-      `${indent}  ${arrayName}[${rowName}] = [];`,
-      `${indent}  for (var ${colName} = 0; ${colName} < ${colCountExpr.trim()}; ${colName}++) {`,
-      `${indent}    ${arrayName}[${rowName}][${colName}] = ${fillExpr.trim()};`,
-      `${indent}  }`,
-      `${indent}}`,
-    ].join('\n')
+    return line
   }).join('\n')
 }
 
