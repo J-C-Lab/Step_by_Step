@@ -120,7 +120,7 @@ function fixDuplicateSelfAssignment(code) {
 function expandForOfLoops(code) {
   return code.split('\n').map(line => {
     const match = line.match(
-      /^(\s*)for\s*\(\s*var\s+([A-Za-z_$][\w$]*)\s+of\s+([A-Za-z_$][\w$]*)\s*\)\s*\{\s*$/
+      /^(\s*)for\s*\(\s*var\s+([A-Za-z_$][\w$]*)\s+of\s+([A-Za-z_$][\w$]*)\s*\)\s*\{\s*(?:\/\/[^\r\n]*)?$/
     )
     if (!match) return line
 
@@ -150,7 +150,7 @@ function expandArrayFromFill(code) {
     // Pattern A: Array.from({length: N}, () => new Array(M).fill(V))
     // All rows have the same fixed column count.
     const fixedMatch = line.match(
-      /^(\s*)var\s+([A-Za-z_$][\w$]*)\s*=\s*Array\.from\s*\(\s*\{\s*length\s*:\s*([^}]+?)\s*\}\s*,\s*\(\s*\)\s*=>\s*new\s+Array\s*\(\s*(.+?)\s*\)\s*\.\s*fill\s*\(\s*(.+?)\s*\)\s*\)\s*;?\s*$/
+      /^(\s*)var\s+([A-Za-z_$][\w$]*)\s*=\s*Array\.from\s*\(\s*\{\s*length\s*:\s*([^}]+?)\s*\}\s*,\s*\(\s*\)\s*=>\s*new\s+Array\s*\(\s*(.+?)\s*\)\s*\.\s*fill\s*\(\s*(.+?)\s*\)\s*\)\s*;?\s*(?:\/\/[^\r\n]*)?$/
     )
     if (fixedMatch) {
       const [, indent, arrayName, rowCountExpr, colCountExpr, fillExpr] = fixedMatch
@@ -171,7 +171,7 @@ function expandArrayFromFill(code) {
     // Row column count depends on the row index (e.g. triangular / jagged arrays).
     // Captures the ignored first param (any name) and the index param name.
     const jaggedMatch = line.match(
-      /^(\s*)var\s+([A-Za-z_$][\w$]*)\s*=\s*Array\.from\s*\(\s*\{\s*length\s*:\s*([^}]+?)\s*\}\s*,\s*\(\s*[^,)]*,\s*([A-Za-z_$][\w$]*)\s*\)\s*=>\s*new\s+Array\s*\(\s*(.+?)\s*\)\s*\.\s*fill\s*\(\s*(.+?)\s*\)\s*\)\s*;?\s*$/
+      /^(\s*)var\s+([A-Za-z_$][\w$]*)\s*=\s*Array\.from\s*\(\s*\{\s*length\s*:\s*([^}]+?)\s*\}\s*,\s*\(\s*[^,)]*,\s*([A-Za-z_$][\w$]*)\s*\)\s*=>\s*new\s+Array\s*\(\s*(.+?)\s*\)\s*\.\s*fill\s*\(\s*(.+?)\s*\)\s*\)\s*;?\s*(?:\/\/[^\r\n]*)?$/
     )
     if (jaggedMatch) {
       const [, indent, arrayName, rowCountExpr, idxParam, colCountExpr, fillExpr] = jaggedMatch
@@ -200,7 +200,7 @@ function expandArrayFromFill(code) {
 function expandArrayFill(code) {
   return code.split('\n').map(line => {
     const match = line.match(
-      /^(\s*)var\s+([A-Za-z_$][\w$]*)\s*=\s*new\s+Array\s*\(\s*([^)]+?)\s*\)\s*\.\s*fill\s*\(\s*(.+?)\s*\)\s*;?\s*$/
+      /^(\s*)var\s+([A-Za-z_$][\w$]*)\s*=\s*new\s+Array\s*\(\s*([^)]+?)\s*\)\s*\.\s*fill\s*\(\s*(.+?)\s*\)\s*;?\s*(?:\/\/[^\r\n]*)?$/
     )
     if (!match) return line
 
