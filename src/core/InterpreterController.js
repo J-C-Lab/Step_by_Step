@@ -151,6 +151,99 @@ export function runAll() {
   requestAnimationFrame(tick)
 }
 
+/**
+ * Count the number of active function frames in the stateStack.
+ * Each FunctionExpression / FunctionDeclaration node in the stack
+ * represents one level of function call depth.
+ */
+function getCallDepth(interp) {
+  if (!Array.isArray(interp.stateStack)) return 0
+  let depth = 0
+  for (const state of interp.stateStack) {
+    const t = state?.node?.type
+    if (t === 'FunctionExpression' || t === 'FunctionDeclaration') depth++
+  }
+  return depth
+}
+
+/**
+ * Step Over: advance until we return to the same (or shallower) call depth
+ * AND the source line has changed.  Treats the entire body of any function
+ * call on the current line as a single logical step.
+ */
+export function stepOver() {
+  if (!_interpreter) return false
+  if (_stepCount >= MAX_STEPS) {
+    _storeApi.getState().setStatus('finished')
+    return false
+  }
+
+  const startDepth = getCallDepth(_interpreter)
+  const startLine  = getCurrentLine(_interpreter)
+  let hasMore = true
+
+  try {
+    let inner = 0
+    const limit = MAX_AST_STEPS * 10
+    while (inner < limit) {
+      hasMore = _interpreter.step()
+      inner++
+      if (!hasMore) break
+      const depth = getCallDepth(_interpreter)
+      const line  = getCurrentLine(_interpreter)
+      if (depth <= startDepth && line !== startLine && line != null) break
+    }
+  } catch (err) {
+    console.error('[InterpreterController] stepOver error:', err)
+    _storeApi.getState().setStatus('finished')
+    return false
+  }
+
+  _stepCount++
+  const snap = capture(_interpreter, _stepCount)
+  _storeApi.getState().pushSnapshot(snap)
+  if (!hasMore) _storeApi.getState().setStatus('finished')
+  return hasMore
+}
+
+/**
+ * Step Out: run until the call depth becomes shallower than where we are now.
+ * If already at the top level, falls back to a regular step.
+ */
+export function stepOut() {
+  if (!_interpreter) return false
+  if (_stepCount >= MAX_STEPS) {
+    _storeApi.getState().setStatus('finished')
+    return false
+  }
+
+  const startDepth = getCallDepth(_interpreter)
+  if (startDepth === 0) return step()   // already at top level
+
+  let hasMore = true
+
+  try {
+    let inner = 0
+    const limit = MAX_AST_STEPS * 20
+    while (inner < limit) {
+      hasMore = _interpreter.step()
+      inner++
+      if (!hasMore) break
+      if (getCallDepth(_interpreter) < startDepth) break
+    }
+  } catch (err) {
+    console.error('[InterpreterController] stepOut error:', err)
+    _storeApi.getState().setStatus('finished')
+    return false
+  }
+
+  _stepCount++
+  const snap = capture(_interpreter, _stepCount)
+  _storeApi.getState().pushSnapshot(snap)
+  if (!hasMore) _storeApi.getState().setStatus('finished')
+  return hasMore
+}
+
 export function pause() {
   _running = false
 }

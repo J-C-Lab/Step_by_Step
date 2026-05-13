@@ -180,7 +180,7 @@ export default function App() {
               flex flex-col h-full rounded-2xl overflow-hidden
               ${theme.panelBg}
             `}>
-              <Toolbar code={code} />
+              <Toolbar code={code} onLoadCode={setCode} />
               <TemplateBar templates={TEMPLATES} onSelect={applyTemplate} theme={theme} />
               <CodeEditor code={code} onChange={setCode} />
             </div>

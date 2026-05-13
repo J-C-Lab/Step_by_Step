@@ -390,7 +390,7 @@ function GraphCanvasInner({ theme, fallbackStructures }) {
   const onNodesChange  = useGraphStore(s => s.onNodesChange)
   const selectedVariable = useSelectionStore(s => s.selectedVariable)
   const setSelectedVariable = useSelectionStore(s => s.setSelectedVariable)
-  const { fitView, fitBounds } = useReactFlow()
+  const { fitView, fitBounds, getViewport, setViewport } = useReactFlow()
   const [ready, setReady] = useState(false)
   const [didInitialFit, setDidInitialFit] = useState(false)
   const liveFlow = useMemo(
@@ -406,10 +406,67 @@ function GraphCanvasInner({ theme, fallbackStructures }) {
   // so these refs are always up-to-date when any useEffect fires.
   const fitBoundsRef   = useRef(fitBounds)
   const fitViewRef     = useRef(fitView)
+  const getViewportRef = useRef(getViewport)
+  const setViewportRef = useRef(setViewport)
   const renderNodesRef = useRef(renderNodes)
   useLayoutEffect(() => { fitBoundsRef.current   = fitBounds   })
   useLayoutEffect(() => { fitViewRef.current     = fitView     })
+  useLayoutEffect(() => { getViewportRef.current = getViewport })
+  useLayoutEffect(() => { setViewportRef.current = setViewport })
   useLayoutEffect(() => { renderNodesRef.current = renderNodes })
+
+  // ── ResizeObserver: proportional viewport scale on container resize ─────
+  // When the panel is dragged larger/smaller, we scale zoom proportionally
+  // so the SAME area stays visible (and appears larger/smaller), rather than
+  // calling fitView() which would reset to "show all nodes".
+  const containerRef    = useRef(null)
+  const roTimerRef      = useRef(null)
+  const prevSizeRef     = useRef({ w: 0, h: 0 })
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+
+    // Seed the previous size immediately so the first resize has a reference.
+    prevSizeRef.current = { w: el.clientWidth, h: el.clientHeight }
+
+    const ro = new ResizeObserver(entries => {
+      const { width: newW, height: newH } = entries[0].contentRect
+      clearTimeout(roTimerRef.current)
+      roTimerRef.current = setTimeout(() => {
+        if (!renderNodesRef.current?.length) {
+          prevSizeRef.current = { w: newW, h: newH }
+          return
+        }
+        const { w: oldW, h: oldH } = prevSizeRef.current
+        if (oldW > 10 && oldH > 10 && (newW !== oldW || newH !== oldH)) {
+          // Geometric mean of width and height ratio keeps the visual density
+          // consistent regardless of which axis changed more.
+          const scale = Math.sqrt((newW / oldW) * (newH / oldH))
+          const vp = getViewportRef.current?.()
+          if (vp) {
+            const { x, y, zoom } = vp
+            const newZoom = zoom * scale
+            // Keep the canvas point that was at the screen centre in place.
+            const cx = oldW / 2
+            const cy = oldH / 2
+            const canvasCX = (cx - x) / zoom
+            const canvasCY = (cy - y) / zoom
+            setViewportRef.current?.({
+              x: newW / 2 - canvasCX * newZoom,
+              y: newH / 2 - canvasCY * newZoom,
+              zoom: newZoom,
+            })
+          }
+        }
+        prevSizeRef.current = { w: newW, h: newH }
+      }, 150)
+    })
+    ro.observe(el)
+    return () => {
+      ro.disconnect()
+      clearTimeout(roTimerRef.current)
+    }
+  }, [])
 
   // Mark ready after first paint
   useEffect(() => {
@@ -474,6 +531,7 @@ function GraphCanvasInner({ theme, fallbackStructures }) {
 
   return (
     <div
+      ref={containerRef}
       style={{ width: '100%', height: '100%', minHeight: 260, position: 'relative' }}
       className={`rounded-xl border border-white/10 ${theme.sidebarBg}`}
     >
