@@ -59,6 +59,13 @@ export function prepareCodeForVisualization(code) {
     messages.push('将明显的 dp[n] 结果访问修正为 dp[n - 1]，避免数组越界。')
   }
 
+  const beforeInputFix = nextCode
+  const inputResult = injectMissingTopLevelInputs(nextCode)
+  nextCode = inputResult.code
+  if (nextCode !== beforeInputFix) {
+    messages.push(inputResult.message)
+  }
+
   const beforeInvokeFix = nextCode
   const invokeResult = appendMissingFunctionInvocation(nextCode)
   nextCode = invokeResult.code
@@ -227,6 +234,108 @@ function uniqueInitIndexName(code, arrayName) {
   return candidate
 }
 
+const JS_KEYWORDS = new Set([
+  'break', 'case', 'catch', 'continue', 'debugger', 'default', 'delete', 'do',
+  'else', 'finally', 'for', 'function', 'if', 'in', 'instanceof', 'new', 'return',
+  'switch', 'this', 'throw', 'try', 'typeof', 'var', 'void', 'while', 'with',
+  'true', 'false', 'null', 'undefined',
+])
+
+const JS_GLOBALS = new Set([
+  'Array', 'Object', 'Math', 'console', 'Number', 'String', 'Boolean', 'Date',
+  'JSON', 'parseInt', 'parseFloat', 'isNaN', 'Infinity', 'NaN', 'length',
+  'ListNode', 'TreeNode', 'Node', 'Map', 'Set', 'Error', 'RegExp', 'Promise',
+])
+
+/**
+ * When users paste a LeetCode function body without wrapper or sample input
+ * (e.g. references `temperatures` but never declares it), execution dies on
+ * the first access with ReferenceError. Inject known sample bindings at top.
+ */
+function injectMissingTopLevelInputs(code) {
+  const declared = collectDeclaredNames(code)
+  const referenced = collectReferencedIdentifiers(code)
+
+  const missing = [...referenced].filter(name =>
+    !declared.has(name) &&
+    !JS_KEYWORDS.has(name) &&
+    !JS_GLOBALS.has(name) &&
+    isKnownInputIdentifier(name)
+  )
+
+  if (missing.length === 0) return { code, message: '' }
+
+  const additions = missing.map(name => `var ${name} = ${getDefaultArgValue(name)};`)
+  const names = missing.join(', ')
+  return {
+    code: `${additions.join('\n')}\n\n${code.trimStart()}`,
+    message: `检测到未定义的输入变量（${names}），已在顶部自动添加示例数据。请按需修改。`,
+  }
+}
+
+function collectDeclaredNames(code) {
+  const names = new Set()
+
+  for (const match of code.matchAll(/\bvar\s+([A-Za-z_$][\w$]*)/g)) {
+    names.add(match[1])
+  }
+  for (const match of code.matchAll(/,\s*([A-Za-z_$][\w$]*)\s*=/g)) {
+    names.add(match[1])
+  }
+  for (const match of code.matchAll(/\bfor\s*\(\s*var\s+([A-Za-z_$][\w$]*)/g)) {
+    names.add(match[1])
+  }
+
+  for (const match of code.matchAll(/\bfunction\s+[A-Za-z_$][\w$]*\s*\(([^)]*)\)/g)) {
+    addParamNames(names, match[1])
+  }
+  for (const match of code.matchAll(/\bfunction\s*\(([^)]*)\)/g)) {
+    addParamNames(names, match[1])
+  }
+  for (const match of code.matchAll(/\bvar\s+[A-Za-z_$][\w$]*\s*=\s*function\s*\(([^)]*)\)/g)) {
+    addParamNames(names, match[1])
+  }
+
+  return names
+}
+
+function addParamNames(names, paramsSource) {
+  for (const param of paramsSource.split(',')) {
+    const trimmed = param.trim()
+    if (!trimmed) continue
+    const name = trimmed.split('=')[0].trim()
+    if (/^[A-Za-z_$][\w$]*$/.test(name)) names.add(name)
+  }
+}
+
+function collectReferencedIdentifiers(code) {
+  const stripped = code
+    .replace(/\/\/[^\n]*/g, ' ')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/"(?:\\.|[^"\\])*"/g, ' ')
+    .replace(/'(?:\\.|[^'\\])*'/g, ' ')
+    .replace(/`(?:\\.|[^`\\])*`/g, ' ')
+
+  const ids = new Set()
+  for (const match of stripped.matchAll(/\b([A-Za-z_$][\w$]*)\b/g)) {
+    ids.add(match[1])
+  }
+  return ids
+}
+
+function isKnownInputIdentifier(name) {
+  const lower = name.toLowerCase()
+  return (
+    lower === 'grid' || lower === 'matrix' ||
+    lower === 'nums' || lower === 'arr' || lower === 'array' ||
+    lower === 'values' || lower === 'prices' || lower === 'weights' || lower === 'wt' ||
+    lower === 'temperatures' ||
+    lower === 's' || lower === 'str' || lower === 'text' || lower === 't' ||
+    lower === 'n' || lower === 'capacity' || lower === 'target' ||
+    lower === 'm' || lower === 'k'
+  )
+}
+
 function appendMissingFunctionInvocation(code) {
   const functionMatch = code.match(/\bvar\s+([A-Za-z_$][\w$]*)\s*=\s*function\s*\(([^)]*)\)/)
   if (!functionMatch) return { code, message: '' }
@@ -273,6 +382,9 @@ function getDefaultArgValue(name) {
 
   if (lower === 'grid' || lower === 'matrix') {
     return '[[1, 3, 1], [1, 5, 1], [4, 2, 1]]'
+  }
+  if (lower === 'temperatures') {
+    return '[73, 74, 75, 71, 69, 72, 76, 73]'
   }
   if (lower === 'nums' || lower === 'arr' || lower === 'array' || lower === 'values' || lower === 'prices') {
     return '[1, 5, 11, 5]'
