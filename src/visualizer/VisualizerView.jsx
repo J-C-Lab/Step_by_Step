@@ -13,6 +13,7 @@ import useSelectionStore from '../store/selectionStore.js'
 // ─── Pointer node (tree / linkedlist) ─────────────────────────────────────
 
 function GlassNode({ data }) {
+  const isTreeNode = data.pointerType === 'tree'
   const active      = data.isActive
   const selected    = data.isSelected
   const activeColor = data.activeColor  ?? 'rgba(74,222,128,0.85)'
@@ -25,6 +26,46 @@ function GlassNode({ data }) {
   const bgColor     = selected ? 'rgba(250,204,21,0.16)' : active ? activeBg : 'rgba(255,255,255,0.09)'
   const txtColor    = selected ? '#b45309' : active ? activeTxt : normalTxt
   const glowColor   = selected ? 'rgba(250,204,21,0.55)' : activeGlow
+
+  if (isTreeNode) {
+    return (
+      <div style={{
+        background: '#ffffff',
+        border: `1.8px solid ${selected ? '#d97706' : '#0f172a'}`,
+        borderRadius: '999px',
+        width: 50,
+        height: 50,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        textAlign: 'center',
+        fontSize: 18,
+        fontWeight: 700,
+        fontFamily: 'monospace',
+        color: '#0f172a',
+        boxShadow: selected
+          ? '0 0 0 4px rgba(217,119,6,0.18)'
+          : active
+            ? '0 0 0 4px rgba(16,185,129,0.16)'
+            : '0 1px 4px rgba(15,23,42,0.10)',
+        transition: 'all 0.2s ease',
+        userSelect: 'none',
+        cursor: 'grab',
+      }}>
+        <Handle
+          type="target"
+          position={Position.Top}
+          style={{ opacity: 0, pointerEvents: 'none' }}
+        />
+        {data.label}
+        <Handle
+          type="source"
+          position={Position.Bottom}
+          style={{ opacity: 0, pointerEvents: 'none' }}
+        />
+      </div>
+    )
+  }
 
   return (
     <div style={{
@@ -393,9 +434,14 @@ function GraphCanvasInner({ theme, fallbackStructures }) {
   const { fitView, fitBounds, getViewport, setViewport } = useReactFlow()
   const [ready, setReady] = useState(false)
   const [didInitialFit, setDidInitialFit] = useState(false)
-  const liveFlow = useMemo(
-    () => buildLiveFlowFromStructures(fallbackStructures),
+  const [showNonTreeCards, setShowNonTreeCards] = useState(true)
+  const hasTreeStructure = useMemo(
+    () => Array.isArray(fallbackStructures) && fallbackStructures.some(s => s.type === 'tree'),
     [fallbackStructures]
+  )
+  const liveFlow = useMemo(
+    () => buildLiveFlowFromStructures(fallbackStructures, { showNonTreeCards }),
+    [fallbackStructures, showNonTreeCards]
   )
   const useLiveFlow = liveFlow.nodes.length > 0
   const renderNodes = useLiveFlow ? liveFlow.nodes : nodes
@@ -565,32 +611,61 @@ function GraphCanvasInner({ theme, fallbackStructures }) {
       </ReactFlow>
 
       {themedNodes.length > 0 && (
-        <button
-          type="button"
-          onClick={() => {
-            fitView({ padding: 0.2, duration: 300 })
-            setDidInitialFit(true)
-          }}
+        <div
           style={{
             position: 'absolute',
             top: 10,
             right: 10,
             zIndex: 20,
-            border: '1px solid rgba(148,163,184,0.32)',
-            borderRadius: 999,
-            padding: '5px 10px',
-            fontSize: 11,
-            fontWeight: 700,
-            color: '#e2e8f0',
-            background: 'rgba(15,23,42,0.72)',
-            backdropFilter: 'blur(10px)',
-            boxShadow: '0 6px 18px rgba(0,0,0,0.22)',
-            cursor: 'pointer',
+            display: 'flex',
+            gap: 8,
+            alignItems: 'center',
           }}
-          title="缩放并平移到完整视图"
         >
-          Fit View
-        </button>
+          {hasTreeStructure && (
+            <button
+              type="button"
+              onClick={() => setShowNonTreeCards(v => !v)}
+              style={{
+                border: '1px solid rgba(148,163,184,0.32)',
+                borderRadius: 999,
+                padding: '5px 10px',
+                fontSize: 11,
+                fontWeight: 700,
+                color: '#e2e8f0',
+                background: showNonTreeCards ? 'rgba(30,41,59,0.72)' : 'rgba(15,23,42,0.72)',
+                backdropFilter: 'blur(10px)',
+                boxShadow: '0 6px 18px rgba(0,0,0,0.22)',
+                cursor: 'pointer',
+              }}
+              title={showNonTreeCards ? '隐藏非树变量卡片，仅看树' : '显示全部变量卡片'}
+            >
+              {showNonTreeCards ? 'Tree Focus' : 'Show All'}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => {
+              fitView({ padding: 0.2, duration: 300 })
+              setDidInitialFit(true)
+            }}
+            style={{
+              border: '1px solid rgba(148,163,184,0.32)',
+              borderRadius: 999,
+              padding: '5px 10px',
+              fontSize: 11,
+              fontWeight: 700,
+              color: '#e2e8f0',
+              background: 'rgba(15,23,42,0.72)',
+              backdropFilter: 'blur(10px)',
+              boxShadow: '0 6px 18px rgba(0,0,0,0.22)',
+              cursor: 'pointer',
+            }}
+            title="缩放并平移到完整视图"
+          >
+            Fit View
+          </button>
+        </div>
       )}
 
       {themedNodes.length === 0 && fallbackStructures.length > 0 && (
@@ -665,7 +740,8 @@ function FallbackCanvas({ structures, theme }) {
   )
 }
 
-function buildLiveFlowFromStructures(structures) {
+function buildLiveFlowFromStructures(structures, options = {}) {
+  const showNonTreeCards = options.showNonTreeCards !== false
   if (!Array.isArray(structures) || structures.length === 0) {
     return { nodes: [], edges: [] }
   }
@@ -673,14 +749,21 @@ function buildLiveFlowFromStructures(structures) {
   const nodes = []
   const edges = []
   const seen = new Set()
+  const coveredPointerIds = new Set()
+  const edgeSeen = new Set()
 
   let listRow = 0
   let treeRow = 0
+  let hasTree = false
   const cardTypes = new Set(['array', 'stack', 'queue', 'matrix', 'object', 'primitive'])
   const cards = []
 
   for (const s of structures) {
     if (s.type === 'linkedlist') {
+      const compIds = collectPointerComponentIds(s.value)
+      if (hasAnyOverlap(compIds, coveredPointerIds)) continue
+      mergeSet(coveredPointerIds, compIds)
+
       let cur = s.value
       let x = 40
       const y = 40 + listRow * 120
@@ -692,12 +775,12 @@ function buildLiveFlowFromStructures(structures) {
           nodes.push({
             id,
             type: 'glassNode',
-            data: { kind: 'pointer', label: getPointerVal(cur), varName: s.name, isActive: true },
+            data: { kind: 'pointer', pointerType: 'linkedlist', label: getPointerVal(cur), varName: s.name, isActive: true },
             position: { x, y },
           })
         }
         if (cur.next && typeof cur.next === 'object' && cur.next.__id__) {
-          edges.push(makeEdge(id, cur.next.__id__, 'next'))
+          pushUniqueEdge(edges, edgeSeen, makeEdge(id, cur.next.__id__, 'next'))
         }
         cur = cur.next
         x += 160
@@ -705,6 +788,11 @@ function buildLiveFlowFromStructures(structures) {
       }
       listRow++
     } else if (s.type === 'tree') {
+      const compIds = collectPointerComponentIds(s.value)
+      if (hasAnyOverlap(compIds, coveredPointerIds)) continue
+      mergeSet(coveredPointerIds, compIds)
+
+      hasTree = true
       const rootY = 40 + treeRow * 220
       const visited = new Set()
       const placeTree = (node, x, y, spread) => {
@@ -715,16 +803,16 @@ function buildLiveFlowFromStructures(structures) {
           nodes.push({
             id: node.__id__,
             type: 'glassNode',
-            data: { kind: 'pointer', label: getPointerVal(node), varName: s.name, isActive: true },
+            data: { kind: 'pointer', pointerType: 'tree', label: getPointerVal(node), varName: s.name, isActive: true },
             position: { x, y },
           })
         }
         if (node.left && typeof node.left === 'object' && node.left.__id__) {
-          edges.push(makeEdge(node.__id__, node.left.__id__, 'left'))
+          pushUniqueEdge(edges, edgeSeen, makeEdge(node.__id__, node.left.__id__, 'left'))
           placeTree(node.left, x - spread, y + 100, Math.max(spread / 2, 45))
         }
         if (node.right && typeof node.right === 'object' && node.right.__id__) {
-          edges.push(makeEdge(node.__id__, node.right.__id__, 'right'))
+          pushUniqueEdge(edges, edgeSeen, makeEdge(node.__id__, node.right.__id__, 'right'))
           placeTree(node.right, x + spread, y + 100, Math.max(spread / 2, 45))
         }
       }
@@ -749,7 +837,8 @@ function buildLiveFlowFromStructures(structures) {
     120,
     nodes.reduce((m, n) => Math.max(m, (n.position?.y ?? 0) + 120), 0)
   )
-  for (const s of cards) {
+  const cardsToRender = hasTree && !showNonTreeCards ? [] : cards
+  for (const s of cardsToRender) {
     const size = estimateCardSize(s)
     if (cx > rowStartX && cx + size.width > rowStartX + maxRowWidth) {
       cx = rowStartX
@@ -776,7 +865,9 @@ function buildLiveFlowFromStructures(structures) {
     rowHeight = Math.max(rowHeight, size.height)
   }
 
-  return { nodes, edges }
+  const nodeIds = new Set(nodes.map(n => n.id))
+  const safeEdges = edges.filter(e => nodeIds.has(e.source) && nodeIds.has(e.target))
+  return { nodes, edges: safeEdges }
 }
 
 function getPointerVal(node) {
@@ -849,18 +940,59 @@ function getNodeFocusBounds(node) {
 }
 
 function makeEdge(source, target, label) {
+  const isTreeEdge = label === 'left' || label === 'right'
   return {
     id: `live_${source}_${label}_${target}`,
     source,
     target,
-    label,
-    type: 'smoothstep',
-    animated: true,
-    markerEnd: { type: 'arrowclosed', color: '#38bdf8' },
-    style: { stroke: '#38bdf8', strokeWidth: 2 },
-    labelStyle: { fontSize: 10, fill: '#cbd5e1', fontWeight: 700 },
+    label: isTreeEdge ? '' : label,
+    type: isTreeEdge ? 'straight' : 'smoothstep',
+    animated: false,
+    markerEnd: isTreeEdge ? undefined : { type: 'arrowclosed', color: '#38bdf8' },
+    style: isTreeEdge
+      ? { stroke: '#0f172a', strokeWidth: 1.6 }
+      : { stroke: '#38bdf8', strokeWidth: 1.8 },
+    labelStyle: { fontSize: 9, fill: '#94a3b8', fontWeight: 600 },
     labelBgPadding: [4, 2],
     labelBgBorderRadius: 6,
-    labelBgStyle: { fill: 'rgba(15,23,42,0.85)', fillOpacity: 0.9 },
+    labelBgStyle: { fill: 'rgba(15,23,42,0.40)', fillOpacity: 0.65 },
   }
+}
+
+function collectPointerComponentIds(root) {
+  const ids = new Set()
+  const visited = new Set()
+  const stack = [root]
+  let guard = 0
+
+  while (stack.length > 0 && guard < 600) {
+    const node = stack.pop()
+    guard++
+    if (!node || typeof node !== 'object' || Array.isArray(node)) continue
+    if (!node.__id__ || visited.has(node.__id__)) continue
+    visited.add(node.__id__)
+    ids.add(node.__id__)
+    stack.push(node.next)
+    stack.push(node.left)
+    stack.push(node.right)
+  }
+  return ids
+}
+
+function hasAnyOverlap(a, b) {
+  for (const v of a) {
+    if (b.has(v)) return true
+  }
+  return false
+}
+
+function mergeSet(target, source) {
+  for (const v of source) target.add(v)
+}
+
+function pushUniqueEdge(edges, edgeSeen, edge) {
+  const key = `${edge.source}|${edge.label}|${edge.target}`
+  if (edgeSeen.has(key)) return
+  edgeSeen.add(key)
+  edges.push(edge)
 }

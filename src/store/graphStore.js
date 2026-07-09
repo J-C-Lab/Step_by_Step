@@ -93,6 +93,7 @@ const useGraphStore = create((set, get) => ({
 
       const nodeData = {
         kind: 'pointer',
+        pointerType: info.type,
         label,
         rawLabel: label,
         isActive,
@@ -299,15 +300,18 @@ function buildEdges(objectMap, allNodes) {
     for (const ptr of ['next', 'left', 'right']) {
       const child = v[ptr]
       if (child && typeof child === 'object' && child.__id__ && nodeIdSet.has(child.__id__)) {
+        const isTreeEdge = ptr === 'left' || ptr === 'right'
         edges.push({
           id:    `e-${id}-${ptr}`,
           source: id,
           target: child.__id__,
-          label:  ptr,
-          type:   'smoothstep',
-          animated: true,
-          markerEnd: { type: 'arrowclosed' },
-          style: { strokeWidth: 1.5 },
+          label:  isTreeEdge ? '' : ptr,
+          type:   isTreeEdge ? 'straight' : 'smoothstep',
+          animated: !isTreeEdge,
+          markerEnd: isTreeEdge ? undefined : { type: 'arrowclosed' },
+          style: isTreeEdge
+            ? { stroke: '#0f172a', strokeWidth: 1.6 }
+            : { strokeWidth: 1.5 },
           labelStyle:   { fontSize: 10, fill: '#94a3b8' },
           labelBgStyle: { fill: 'transparent' },
         })

@@ -19,12 +19,14 @@ const useTimelineStore = create((set, get) => ({
 
   /** Execution status */
   status: 'idle', // 'idle' | 'running' | 'paused' | 'finished'
+  /** Runtime diagnostics / hints shown to user */
+  diagnostics: [],
 
   // ── Actions ──────────────────────────────────────────────
 
   /** Called by InterpreterController.init() — replace the whole timeline */
   resetTimeline(initial) {
-    set({ timeline: [...initial], currentStep: 0, status: 'idle' })
+    set({ timeline: [...initial], currentStep: 0, status: 'idle', diagnostics: [] })
   },
 
   /** Called after each interpreter.step() */
@@ -38,6 +40,19 @@ const useTimelineStore = create((set, get) => ({
   /** Explicit status setter used by controller */
   setStatus(status) {
     set({ status })
+  },
+
+  addDiagnostic(diag) {
+    if (!diag || !diag.message) return
+    set(state => {
+      const exists = state.diagnostics.some(d => d.message === diag.message)
+      if (exists) return state
+      return { diagnostics: [...state.diagnostics, diag] }
+    })
+  },
+
+  clearDiagnostics() {
+    set({ diagnostics: [] })
   },
 
   // ── Playback navigation (used by timeline scrubber / prev-next buttons) ──
@@ -63,7 +78,7 @@ const useTimelineStore = create((set, get) => ({
 
   // ── Full reset (back to idle, clear everything) ──
   hardReset() {
-    set({ timeline: [], currentStep: 0, status: 'idle' })
+    set({ timeline: [], currentStep: 0, status: 'idle', diagnostics: [] })
   },
 }))
 

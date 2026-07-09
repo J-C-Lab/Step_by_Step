@@ -126,7 +126,9 @@ export default function Toolbar({ code, onLoadCode }) {
 
   function handleStop() {
     Controller.pause()
-    if (!isIdle) setStatus('finished')
+    Controller.reset()
+    hardReset()
+    setStatus('idle')
   }
 
   const runLabel  = isRunning ? 'Pause' : isPaused ? 'Resume' : isFinished ? 'Restart' : 'Run'

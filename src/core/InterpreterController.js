@@ -14,6 +14,7 @@
 import Interpreter from 'js-interpreter'
 import { capture, resetObjectIds } from './Adapter.js'
 import { transformCode } from './codeTransformer.js'
+import { prepareCodeForVisualization } from '../utils/codePrep.js'
 
 const MAX_STEPS = 1000
 
@@ -27,6 +28,15 @@ export function injectStore(storeApi) {
 let _interpreter = null
 let _stepCount = 0
 let _running = false
+
+function pushDiagnostic(message, level = 'warning') {
+  if (!_storeApi?.getState) return
+  _storeApi.getState().addDiagnostic?.({
+    level,
+    message,
+    atStep: _stepCount,
+  })
+}
 
 /** Build initFunc to expose console.log to the interpreter sandbox */
 function initFunc(interpreter, globalObject) {
@@ -50,7 +60,14 @@ function initFunc(interpreter, globalObject) {
 
 export function init(code) {
   resetObjectIds()
-  const transformed = transformCode(code)
+  _storeApi.getState().clearDiagnostics?.()
+  const prepared = prepareCodeForVisualization(code)
+  for (const msg of prepared.messages ?? []) {
+    if (/检测到|修正|补齐|自动/.test(msg)) {
+      pushDiagnostic(msg, 'info')
+    }
+  }
+  const transformed = transformCode(prepared.code)
   _interpreter = new Interpreter(transformed, initFunc)
   _stepCount = 0
   _running = false
@@ -79,6 +96,33 @@ function getCurrentLine(interp) {
  * programs that never change line (e.g. a single-expression program).
  */
 const MAX_AST_STEPS = 2000
+const IGNORED_HELPER_FUNCTIONS = new Set([
+  '__buildTreeFromLevelOrder',
+])
+
+function isInIgnoredHelper(interp) {
+  const stack = interp?.stateStack
+  if (!Array.isArray(stack) || stack.length === 0) return false
+  for (const state of stack) {
+    const node = state?.node
+    if (!node) continue
+    if (
+      (node.type === 'FunctionDeclaration' || node.type === 'FunctionExpression') &&
+      node.id?.name &&
+      IGNORED_HELPER_FUNCTIONS.has(node.id.name)
+    ) {
+      return true
+    }
+    if (
+      node.type === 'CallExpression' &&
+      node.callee?.type === 'Identifier' &&
+      IGNORED_HELPER_FUNCTIONS.has(node.callee.name)
+    ) {
+      return true
+    }
+  }
+  return false
+}
 
 function stepToNextLine() {
   const startLine = getCurrentLine(_interpreter)
@@ -91,10 +135,14 @@ function stepToNextLine() {
       innerSteps++
       if (!hasMore) break
       const newLine = getCurrentLine(_interpreter)
-      if (newLine !== startLine && newLine != null) break
+      if (newLine !== startLine && newLine != null && !isInIgnoredHelper(_interpreter)) break
+    }
+    if (innerSteps >= MAX_AST_STEPS && hasMore) {
+      pushDiagnostic('单步执行在同一行耗时过长，已自动截断本步。可能存在复杂循环或疑似死循环。')
     }
   } catch (err) {
     console.error('[InterpreterController] step error:', err)
+    pushDiagnostic(`运行异常：${err?.message ?? '未知错误'}，请检查当前算法与输入结构。`)
     _storeApi.getState().setStatus('finished')
     return false
   }

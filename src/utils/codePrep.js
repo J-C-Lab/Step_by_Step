@@ -29,6 +29,18 @@ export function prepareCodeForVisualization(code) {
     messages.push('修正重复变量赋值，避免无意义的 self assignment。')
   }
 
+  const beforeTreePointerFix = nextCode
+  nextCode = fixCommonTreePointerMistakes(nextCode)
+  if (nextCode !== beforeTreePointerFix) {
+    messages.push('检测到可疑树指针赋值（node.left = node），已自动修正为 node.left = null。')
+  }
+
+  const beforeFlattenPrevFix = nextCode
+  nextCode = fixFlattenPrevAssignment(nextCode)
+  if (nextCode !== beforeFlattenPrevFix) {
+    messages.push('检测到 flatten 模式缺少 prev = node，已自动补齐，避免链表结果丢节点。')
+  }
+
   const beforeForOf = nextCode
   nextCode = expandForOfLoops(nextCode)
   if (nextCode !== beforeForOf) {
@@ -64,6 +76,13 @@ export function prepareCodeForVisualization(code) {
   nextCode = inputResult.code
   if (nextCode !== beforeInputFix) {
     messages.push(inputResult.message)
+  }
+
+  const beforeTreeBuild = nextCode
+  const treeBuildResult = autoBuildTreeInputs(nextCode)
+  nextCode = treeBuildResult.code
+  if (nextCode !== beforeTreeBuild) {
+    messages.push(treeBuildResult.message)
   }
 
   const beforeInvokeFix = nextCode
@@ -121,6 +140,25 @@ function fixDuplicateSelfAssignment(code) {
   return code.replace(
     /\bvar\s+([A-Za-z_$][\w$]*)\s*=\s*\1\s*=\s*/g,
     'var $1 = '
+  )
+}
+
+function fixCommonTreePointerMistakes(code) {
+  return code.replace(
+    /\bnode\s*\.\s*left\s*=\s*node\s*;/g,
+    'node.left = null;'
+  )
+}
+
+function fixFlattenPrevAssignment(code) {
+  const hasRightToPrev = /\bnode\s*\.\s*right\s*=\s*prev\s*;/.test(code)
+  const hasLeftNull = /\bnode\s*\.\s*left\s*=\s*null\s*;/.test(code)
+  const hasPrevAssign = /\bprev\s*=\s*node\s*;/.test(code)
+  if (!hasRightToPrev || !hasLeftNull || hasPrevAssign) return code
+
+  return code.replace(
+    /(\bnode\s*\.\s*left\s*=\s*null\s*;)/,
+    '$1\n    prev = node;'
   )
 }
 
@@ -374,6 +412,78 @@ function appendMissingFunctionInvocation(code) {
   return { code: newCode, message: note }
 }
 
+function autoBuildTreeInputs(code) {
+  const hasTreeCtor = /\bTreeNode\b/.test(code)
+  const treeAlgoLikely = /(?:\.left\b|\.right\b)/.test(code)
+  if (!hasTreeCtor && !treeAlgoLikely) return { code, message: '' }
+
+  const lines = code.split('\n')
+  let changed = false
+  let requiresHelper = false
+
+  const updated = lines.map(line => {
+    const match = line.match(
+      /^(\s*)var\s+([A-Za-z_$][\w$]*)\s*=\s*(\[[^[\]]*\])\s*;?\s*(?:\/\/[^\r\n]*)?$/
+    )
+    if (!match) return line
+
+    const [, indent, name, arrLiteral] = match
+    if (!isLikelyTreeRootName(name)) return line
+    if (!isLikelyLevelOrderArrayLiteral(arrLiteral)) return line
+
+    changed = true
+    const inlineTreeExpr = tryBuildTreeCtorExpression(arrLiteral)
+    if (inlineTreeExpr) {
+      return `${indent}var ${name} = ${inlineTreeExpr};`
+    }
+    requiresHelper = true
+    return `${indent}var ${name} = __buildTreeFromLevelOrder(${arrLiteral});`
+  })
+
+  if (!changed) return { code, message: '' }
+  const needsTreeCtorInjection = !hasTreeCtor
+  if (!requiresHelper || /\b__buildTreeFromLevelOrder\s*\(/.test(code)) {
+    const ctorBlock = needsTreeCtorInjection ? `${getDefaultTreeNodeCtor()}\n` : ''
+    return {
+      code: `${ctorBlock}${updated.join('\n')}`,
+      message: needsTreeCtorInjection
+        ? '检测到树算法输入仍为数组，已自动补全 TreeNode 并构建 left/right 二叉树。'
+        : '检测到 TreeNode + 层序数组输入，已自动构建 left/right 二叉树。',
+    }
+  }
+
+  const helper = [
+    'function __buildTreeFromLevelOrder(arr) {',
+    '  if (!arr || arr.length === 0) return null;',
+    '  if (arr[0] === null || arr[0] === undefined) return null;',
+    '  var nodes = [];',
+    '  for (var i = 0; i < arr.length; i++) {',
+    '    if (arr[i] === null || arr[i] === undefined) {',
+    '      nodes[i] = null;',
+    '    } else {',
+    '      nodes[i] = new TreeNode(arr[i]);',
+    '    }',
+    '  }',
+    '  for (var j = 0; j < nodes.length; j++) {',
+    '    if (!nodes[j]) continue;',
+    '    var li = 2 * j + 1;',
+    '    var ri = 2 * j + 2;',
+    '    nodes[j].left = li < nodes.length ? nodes[li] : null;',
+    '    nodes[j].right = ri < nodes.length ? nodes[ri] : null;',
+    '  }',
+    '  return nodes[0];',
+    '}',
+    '',
+  ].join('\n')
+
+  return {
+    code: `${needsTreeCtorInjection ? `${getDefaultTreeNodeCtor()}\n` : ''}${helper}${updated.join('\n')}`,
+    message: needsTreeCtorInjection
+      ? '检测到树算法输入仍为数组，已自动补全 TreeNode 并构建 left/right 二叉树。'
+      : '检测到 TreeNode + 层序数组输入，已自动构建 left/right 二叉树。',
+  }
+}
+
 /**
  * Infer a sensible default example value for a function parameter by its name.
  */
@@ -409,6 +519,65 @@ function getDefaultArgValue(name) {
   }
   // generic fallback
   return '5'
+}
+
+function isLikelyTreeRootName(name) {
+  return /(^root$)|tree|node/i.test(name)
+}
+
+function isLikelyLevelOrderArrayLiteral(literal) {
+  if (!literal) return false
+  if (!/^\[[\s\S]*\]$/.test(literal)) return false
+  if (/[\{\}:]/.test(literal)) return false
+  const compact = literal.replace(/\s+/g, '')
+  if (!compact.includes(',')) return false
+  if (!/(^|,)(null|undefined)(,|$)/.test(compact) && compact.length < 10) return false
+  return true
+}
+
+function tryBuildTreeCtorExpression(arrLiteral) {
+  let arr
+  try {
+    arr = Function(`"use strict"; return (${arrLiteral});`)()
+  } catch {
+    return null
+  }
+  if (!Array.isArray(arr) || arr.length === 0) return null
+  const valueOk = arr.every(v =>
+    v === null ||
+    v === undefined ||
+    typeof v === 'number' ||
+    typeof v === 'string' ||
+    typeof v === 'boolean'
+  )
+  if (!valueOk) return null
+
+  const build = idx => {
+    if (idx >= arr.length || arr[idx] === null || arr[idx] === undefined) return 'null'
+    const left = build(2 * idx + 1)
+    const right = build(2 * idx + 2)
+    return `new TreeNode(${toJsLiteral(arr[idx])}, ${left}, ${right})`
+  }
+  return build(0)
+}
+
+function toJsLiteral(value) {
+  if (value === null) return 'null'
+  if (value === undefined) return 'undefined'
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  if (typeof value === 'string') return JSON.stringify(value)
+  return 'null'
+}
+
+function getDefaultTreeNodeCtor() {
+  return [
+    'function TreeNode(val, left, right) {',
+    '  this.val = (val === undefined ? 0 : val);',
+    '  this.left = (left === undefined ? null : left);',
+    '  this.right = (right === undefined ? null : right);',
+    '}',
+    '',
+  ].join('\n')
 }
 
 /**

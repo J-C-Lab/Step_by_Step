@@ -12,7 +12,7 @@ import { buildVisualizerState } from '../visualizer/VisualizerAdapter.js'
  */
 export default function Visualizer() {
   const { theme } = useThemeStore()
-  const { timeline, currentStep, status } = useTimelineStore()
+  const { timeline, currentStep, status, diagnostics } = useTimelineStore()
 
   const updateGraph = useGraphStore(s => s.updateGraph)
   const resetGraph  = useGraphStore(s => s.reset)
@@ -84,6 +84,20 @@ export default function Visualizer() {
       {snap?.line != null && (
         <div className="shrink-0">
           <LineCard line={snap.line} theme={theme} />
+        </div>
+      )}
+
+      {/* React Flow canvas — always mounted, flex-1 to fill remaining space */}
+      {diagnostics.length > 0 && (
+        <div className="shrink-0 px-3 py-2 rounded-xl border border-amber-400/30 bg-amber-400/10">
+          <div className="text-[11px] font-semibold text-amber-300 mb-1">诊断提示</div>
+          <div className="space-y-1">
+            {diagnostics.slice(-3).map((d, idx) => (
+              <div key={`${d.message}-${idx}`} className="text-[11px] text-amber-100">
+                - {d.message}
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
