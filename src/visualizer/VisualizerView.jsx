@@ -16,22 +16,35 @@ function GlassNode({ data }) {
   const isTreeNode = data.pointerType === 'tree'
   const active      = data.isActive
   const selected    = data.isSelected
+  const isCurrent   = data.isCurrent
   const activeColor = data.activeColor  ?? 'rgba(74,222,128,0.85)'
   const activeBg    = data.activeBg     ?? 'rgba(74,222,128,0.18)'
   const activeGlow  = data.activeGlow   ?? 'rgba(74,222,128,0.5)'
   const activeTxt   = data.activeTxt    ?? '#4ade80'
   const normalTxt   = data.graphText    ?? '#e2e8f0'
   const mutedTxt    = data.graphMuted   ?? 'rgba(148,163,184,0.6)'
-  const borderColor = selected ? '#facc15' : active ? activeColor : 'rgba(255,255,255,0.20)'
-  const bgColor     = selected ? 'rgba(250,204,21,0.16)' : active ? activeBg : 'rgba(255,255,255,0.09)'
-  const txtColor    = selected ? '#b45309' : active ? activeTxt : normalTxt
-  const glowColor   = selected ? 'rgba(250,204,21,0.55)' : activeGlow
+  const borderColor = isCurrent
+    ? '#16a34a'
+    : selected
+      ? '#facc15'
+      : active
+        ? activeColor
+        : 'rgba(255,255,255,0.20)'
+  const bgColor     = isCurrent
+    ? 'rgba(34,197,94,0.14)'
+    : selected
+      ? 'rgba(250,204,21,0.16)'
+      : active
+        ? activeBg
+        : 'rgba(255,255,255,0.09)'
+  const txtColor    = isCurrent ? '#15803d' : selected ? '#b45309' : active ? activeTxt : normalTxt
+  const glowColor   = isCurrent ? 'rgba(34,197,94,0.55)' : selected ? 'rgba(250,204,21,0.55)' : activeGlow
 
   if (isTreeNode) {
     return (
       <div style={{
-        background: '#ffffff',
-        border: `1.8px solid ${selected ? '#d97706' : '#0f172a'}`,
+        background: isCurrent ? '#ecfdf5' : '#ffffff',
+        border: `2.5px solid ${isCurrent ? '#16a34a' : selected ? '#d97706' : '#0f172a'}`,
         borderRadius: '999px',
         width: 50,
         height: 50,
@@ -42,16 +55,39 @@ function GlassNode({ data }) {
         fontSize: 18,
         fontWeight: 700,
         fontFamily: 'monospace',
-        color: '#0f172a',
-        boxShadow: selected
-          ? '0 0 0 4px rgba(217,119,6,0.18)'
-          : active
-            ? '0 0 0 4px rgba(16,185,129,0.16)'
-            : '0 1px 4px rgba(15,23,42,0.10)',
-        transition: 'all 0.2s ease',
+        color: isCurrent ? '#15803d' : '#0f172a',
+        boxShadow: isCurrent
+          ? '0 0 0 5px rgba(34,197,94,0.28), 0 0 22px rgba(34,197,94,0.42)'
+          : selected
+            ? '0 0 0 4px rgba(217,119,6,0.18)'
+            : active
+              ? '0 0 0 4px rgba(16,185,129,0.16)'
+              : '0 1px 4px rgba(15,23,42,0.10)',
+        transition: 'all 0.25s ease',
         userSelect: 'none',
         cursor: 'grab',
+        position: 'relative',
       }}>
+        {isCurrent && (
+          <span style={{
+            position: 'absolute',
+            top: -10,
+            right: -8,
+            width: 18,
+            height: 18,
+            borderRadius: '999px',
+            background: '#16a34a',
+            color: '#ffffff',
+            fontSize: 10,
+            fontWeight: 800,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            boxShadow: '0 2px 6px rgba(22,163,74,0.45)',
+          }}>
+            ▶
+          </span>
+        )}
         <Handle
           type="target"
           position={Position.Top}
@@ -80,7 +116,7 @@ function GlassNode({ data }) {
       fontWeight:   700,
       fontFamily:   'monospace',
       color:        txtColor,
-      boxShadow:    active || selected
+      boxShadow:    isCurrent || active || selected
         ? `0 0 18px ${glowColor}, 0 2px 8px rgba(0,0,0,0.35)`
         : '0 2px 14px rgba(0,0,0,0.28)',
       transition:   'all 0.3s ease',
@@ -415,17 +451,21 @@ const NODE_TYPES = { glassNode: GlassNode, nullNode: NullNode, cardNode: CardNod
  * VisualizerView: single ReactFlowProvider always mounted.
  * All data structures render as persistent canvas nodes.
  */
-export default function VisualizerView({ theme, fallbackStructures = [] }) {
+export default function VisualizerView({ theme, fallbackStructures = [], activePointerIds = new Set() }) {
   return (
     <div style={{ width: '100%', height: '100%', minHeight: 260 }}>
-      <GraphCanvas theme={theme} fallbackStructures={fallbackStructures} />
+      <GraphCanvas
+        theme={theme}
+        fallbackStructures={fallbackStructures}
+        activePointerIds={activePointerIds}
+      />
     </div>
   )
 }
 
 // ─── Graph canvas (always mounted) ────────────────────────────────────────
 
-function GraphCanvasInner({ theme, fallbackStructures }) {
+function GraphCanvasInner({ theme, fallbackStructures, activePointerIds }) {
   const nodes          = useGraphStore(s => s.nodes)
   const edges          = useGraphStore(s => s.edges)
   const onNodesChange  = useGraphStore(s => s.onNodesChange)
@@ -440,8 +480,11 @@ function GraphCanvasInner({ theme, fallbackStructures }) {
     [fallbackStructures]
   )
   const liveFlow = useMemo(
-    () => buildLiveFlowFromStructures(fallbackStructures, { showNonTreeCards }),
-    [fallbackStructures, showNonTreeCards]
+    () => buildLiveFlowFromStructures(fallbackStructures, {
+      showNonTreeCards,
+      activePointerIds,
+    }),
+    [fallbackStructures, showNonTreeCards, activePointerIds]
   )
   const useLiveFlow = liveFlow.nodes.length > 0
   const renderNodes = useLiveFlow ? liveFlow.nodes : nodes
@@ -675,10 +718,14 @@ function GraphCanvasInner({ theme, fallbackStructures }) {
   )
 }
 
-function GraphCanvas({ theme, fallbackStructures }) {
+function GraphCanvas({ theme, fallbackStructures, activePointerIds }) {
   return (
     <ReactFlowProvider>
-      <GraphCanvasInner theme={theme} fallbackStructures={fallbackStructures} />
+      <GraphCanvasInner
+        theme={theme}
+        fallbackStructures={fallbackStructures}
+        activePointerIds={activePointerIds}
+      />
     </ReactFlowProvider>
   )
 }
@@ -742,6 +789,8 @@ function FallbackCanvas({ structures, theme }) {
 
 function buildLiveFlowFromStructures(structures, options = {}) {
   const showNonTreeCards = options.showNonTreeCards !== false
+  const activePointerIds = options.activePointerIds ?? new Set()
+  const isCurrentNode = id => activePointerIds instanceof Set && activePointerIds.has(id)
   if (!Array.isArray(structures) || structures.length === 0) {
     return { nodes: [], edges: [] }
   }
@@ -775,7 +824,14 @@ function buildLiveFlowFromStructures(structures, options = {}) {
           nodes.push({
             id,
             type: 'glassNode',
-            data: { kind: 'pointer', pointerType: 'linkedlist', label: getPointerVal(cur), varName: s.name, isActive: true },
+            data: {
+              kind: 'pointer',
+              pointerType: 'linkedlist',
+              label: getPointerVal(cur),
+              varName: s.name,
+              isActive: false,
+              isCurrent: isCurrentNode(id),
+            },
             position: { x, y },
           })
         }
@@ -803,7 +859,14 @@ function buildLiveFlowFromStructures(structures, options = {}) {
           nodes.push({
             id: node.__id__,
             type: 'glassNode',
-            data: { kind: 'pointer', pointerType: 'tree', label: getPointerVal(node), varName: s.name, isActive: true },
+            data: {
+              kind: 'pointer',
+              pointerType: 'tree',
+              label: getPointerVal(node),
+              varName: s.name,
+              isActive: false,
+              isCurrent: isCurrentNode(node.__id__),
+            },
             position: { x, y },
           })
         }

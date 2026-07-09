@@ -177,7 +177,7 @@ export default function App() {
           {/* LEFT: Toolbar + Templates + Monaco */}
           <Allotment.Pane minSize={280}>
             <div className={`
-              flex flex-col h-full rounded-2xl overflow-hidden
+              flex flex-col h-full min-w-0 rounded-2xl overflow-hidden
               ${theme.panelBg}
             `}>
               <Toolbar code={code} onLoadCode={setCode} />
@@ -226,9 +226,9 @@ function TemplateBar({ templates, onSelect, theme }) {
 
   return (
     <div className={`
-      flex items-center gap-1.5 px-3 py-1.5 shrink-0 overflow-x-auto
+      flex flex-wrap items-center gap-x-1.5 gap-y-1.5 px-3 py-1.5 shrink-0 min-w-0 w-full
       ${theme.sidebarBg} mx-3 mb-1 rounded-xl
-    `} style={{ scrollbarWidth: 'none' }}>
+    `}>
       <span className={`text-[10px] font-semibold uppercase tracking-wider ${theme.subText} shrink-0 mr-1 select-none`}>
         Templates
       </span>

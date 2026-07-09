@@ -137,14 +137,14 @@ export default function Toolbar({ code, onLoadCode }) {
 
   return (
     <div className={`
-      flex items-center gap-1.5 px-3 py-2 shrink-0
+      flex flex-wrap items-center gap-x-1.5 gap-y-1.5 px-3 py-2 shrink-0 min-w-0 w-full
       ${theme.sidebarBg} rounded-2xl mx-3 mt-3
     `}>
       {/* Run / Pause / Resume / Restart */}
       <button
         onClick={handleRun}
         className={`
-          flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold
+          flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold shrink-0
           transition-all duration-150 active:scale-95 select-none
           ${runBtnClass}
         `}
@@ -154,7 +154,7 @@ export default function Toolbar({ code, onLoadCode }) {
         <span>{runLabel}</span>
       </button>
 
-      <div className={`w-px h-5 mx-0.5 ${theme.divider}`} />
+      <div className={`w-px h-5 mx-0.5 shrink-0 ${theme.divider}`} />
 
       {/* Step Into / Step Init */}
       <ToolBtn
@@ -196,7 +196,7 @@ export default function Toolbar({ code, onLoadCode }) {
         title="运行至结束"
       />
 
-      <div className={`w-px h-5 mx-0.5 ${theme.divider}`} />
+      <div className={`w-px h-5 mx-0.5 shrink-0 ${theme.divider}`} />
 
       {/* Reset */}
       <ToolBtn
@@ -219,7 +219,7 @@ export default function Toolbar({ code, onLoadCode }) {
       />
 
       {/* ── Right side ── */}
-      <div className="ml-auto flex items-center gap-2">
+      <div className="flex items-center gap-2 shrink-0 ml-auto">
         {/* History button */}
         <button
           onClick={() => setShowHistory(v => !v)}
@@ -256,8 +256,8 @@ function ToolBtn({ onClick, disabled, icon, label, theme, title }) {
       disabled={disabled}
       title={title}
       className={`
-        flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-medium
-        transition-all duration-150 active:scale-95 select-none
+        flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-medium shrink-0
+        transition-all duration-150 active:scale-95 select-none whitespace-nowrap
         ${disabled ? theme.btnDisabled : theme.btnBase}
       `}
     >

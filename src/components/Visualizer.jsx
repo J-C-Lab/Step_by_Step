@@ -3,7 +3,7 @@ import useThemeStore from '../store/themeStore.js'
 import useTimelineStore from '../store/timelineStore.js'
 import useGraphStore from '../store/graphStore.js'
 import VisualizerView from '../visualizer/VisualizerView.jsx'
-import { buildVisualizerState } from '../visualizer/VisualizerAdapter.js'
+import { buildVisualizerState, resolveActivePointerIds } from '../visualizer/VisualizerAdapter.js'
 
 /**
  * Visualizer: upper-right panel.
@@ -31,13 +31,21 @@ export default function Visualizer() {
     ).structures
   }, [snap, prevSnap])
 
+  const activePointerIds = useMemo(() => {
+    if (!snap) return new Set()
+    return resolveActivePointerIds(
+      snap.variables ?? {},
+      prevSnap?.variables ?? null
+    )
+  }, [snap, prevSnap])
+
   // Feed GraphStore whenever displayed step data changes.
   // We intentionally avoid step dedupe refs here so timeline scrub / pause /
   // strict-mode remounts cannot accidentally skip a graph update.
   useEffect(() => {
     if (!snap || structures.length === 0) return
-    updateGraph(structures, snap.step)
-  }, [snap, structures, updateGraph])
+    updateGraph(structures, snap.step, activePointerIds)
+  }, [snap, structures, activePointerIds, updateGraph])
 
   // Reset graph only on explicit timeline reset or fresh new program session.
   // Avoid clearing when timeline length is 1 after init; otherwise step0 graph
@@ -103,7 +111,11 @@ export default function Visualizer() {
 
       {/* React Flow canvas — always mounted, flex-1 to fill remaining space */}
       <div className="flex-1 min-h-0">
-        <VisualizerView theme={theme} fallbackStructures={structures} />
+        <VisualizerView
+          theme={theme}
+          fallbackStructures={structures}
+          activePointerIds={activePointerIds}
+        />
       </div>
 
       {/* Call stack frames — below canvas, scrollable if needed */}

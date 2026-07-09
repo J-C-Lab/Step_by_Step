@@ -49,7 +49,162 @@ export function buildVisualizerState(currentSnap, previousSnap) {
     return detectStructure(name, value, prevValue)
   })
 
-  return { structures }
+  return { structures: filterRenderStructures(structures) }
+}
+
+/** Walker vars are used for current-node highlight only — not separate tree renders. */
+const WALKER_POINTER_NAMES = new Set([
+  'node', 'cur', 'current', 'p', 'ptr', 'temp', 'prev', 'walker', 'now', 'next',
+])
+
+const CANONICAL_TREE_NAMES = new Set(['root', 'tree'])
+
+function isWalkerPointerName(name) {
+  return WALKER_POINTER_NAMES.has(String(name ?? '').toLowerCase())
+}
+
+function countTreeNodes(root) {
+  if (!root || typeof root !== 'object') return 0
+  let count = 0
+  const visited = new Set()
+  const stack = [root]
+  let guard = 0
+  while (stack.length > 0 && guard < 600) {
+    const node = stack.pop()
+    guard++
+    if (!node || typeof node !== 'object' || Array.isArray(node)) continue
+    if (!node.__id__ || visited.has(node.__id__)) continue
+    visited.add(node.__id__)
+    count++
+    stack.push(node.left, node.right, node.next)
+  }
+  return count
+}
+
+/** 'real' = interpreter objects; 'synthetic' = arrtree_/nodepool_ fallback graphs. */
+function classifyTreeIdKind(root) {
+  if (!root || typeof root !== 'object') return 'synthetic'
+  let hasReal = false
+  let hasSynthetic = false
+  const visited = new Set()
+  const stack = [root]
+  let guard = 0
+
+  while (stack.length > 0 && guard < 600) {
+    const node = stack.pop()
+    guard++
+    if (!node || typeof node !== 'object' || Array.isArray(node)) continue
+    if (!node.__id__ || visited.has(node.__id__)) continue
+    visited.add(node.__id__)
+    if (String(node.__id__).startsWith('arrtree_') || String(node.__id__).startsWith('nodepool_')) {
+      hasSynthetic = true
+    } else {
+      hasReal = true
+    }
+    stack.push(node.left, node.right, node.next)
+  }
+
+  if (hasReal) return 'real'
+  if (hasSynthetic) return 'synthetic'
+  return 'synthetic'
+}
+
+/**
+ * Keep a single connected tree on canvas. Drop duplicate synthetic trees,
+ * walker pointer subtrees, and redundant level-order array trees when a
+ * real TreeNode root is already available.
+ */
+function filterRenderStructures(structures) {
+  if (!Array.isArray(structures) || structures.length === 0) return structures
+
+  const trees = structures.filter(s => s.type === 'tree')
+  if (trees.length === 0) return structures
+
+  const hasRealTree = trees.some(s => classifyTreeIdKind(s.value) === 'real')
+  const nonWalkerTrees = trees.filter(s => !isWalkerPointerName(s.name))
+
+  let keptTrees = (nonWalkerTrees.length > 0 ? nonWalkerTrees : trees).filter(s => {
+    if (hasRealTree && classifyTreeIdKind(s.value) === 'synthetic') return false
+    return true
+  })
+
+  if (keptTrees.length > 1) {
+    const canonical = keptTrees.filter(s => CANONICAL_TREE_NAMES.has(String(s.name).toLowerCase()))
+    const pool = canonical.length > 0 ? canonical : keptTrees
+    keptTrees = [...pool].sort((a, b) => countTreeNodes(b.value) - countTreeNodes(a.value)).slice(0, 1)
+  }
+
+  const hasCanonicalTree = keptTrees.some(s => CANONICAL_TREE_NAMES.has(String(s.name).toLowerCase()))
+
+  const others = structures.filter(s => {
+    if (s.type === 'tree') return false
+    if (
+      hasCanonicalTree &&
+      s.type === 'array' &&
+      isLikelyTreeVariableName(s.name) &&
+      looksLikeLevelOrderTreeArray(s.name, s.value)
+    ) {
+      return false
+    }
+    return true
+  })
+
+  return [...others, ...keptTrees]
+}
+
+/** Names that commonly hold the "current" pointer during tree/list traversal. */
+const WALKER_NAME_PRIORITY = [
+  'node', 'cur', 'current', 'p', 'ptr', 'temp', 'walker', 'now', 'head', 'root',
+]
+
+/**
+ * Resolve which graph node ids represent the algorithm's current pointer(s).
+ * Uses walker variable names first, then falls back to pointer identity changes
+ * between consecutive snapshots.
+ *
+ * @param {Record<string, any>} variables
+ * @param {Record<string, any> | null} [prevVariables]
+ * @returns {Set<string>}
+ */
+export function resolveActivePointerIds(variables, prevVariables = null) {
+  const vars = variables ?? {}
+  const candidates = []
+
+  for (const [name, value] of Object.entries(vars)) {
+    if (!value || typeof value !== 'object' || !value.__id__) continue
+    if (!isTree(value) && !isLinkedList(value)) continue
+
+    const lower = name.toLowerCase()
+    const priority = WALKER_NAME_PRIORITY.indexOf(lower)
+    candidates.push({
+      name,
+      id: value.__id__,
+      priority: priority >= 0 ? priority : 100 + lower.charCodeAt(0),
+    })
+  }
+
+  if (candidates.length > 0) {
+    candidates.sort((a, b) => a.priority - b.priority || a.name.localeCompare(b.name))
+    const best = candidates[0].priority
+    const ids = new Set()
+    for (const c of candidates) {
+      if (c.priority === best) ids.add(c.id)
+      else break
+    }
+    return ids
+  }
+
+  if (prevVariables) {
+    const changed = new Set()
+    for (const [name, value] of Object.entries(vars)) {
+      const prevVal = prevVariables[name]
+      if (!value?.__id__ || (!isTree(value) && !isLinkedList(value))) continue
+      if (prevVal?.__id__ !== value.__id__) changed.add(value.__id__)
+    }
+    return changed
+  }
+
+  return new Set()
 }
 
 let anonListIdCounter = 0

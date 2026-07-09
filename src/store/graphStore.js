@@ -51,8 +51,9 @@ const useGraphStore = create((set, get) => ({
    *
    * @param {Array<{type,name,value,meta?}>} structures  Output of buildVisualizerState
    * @param {number} stepIndex
+   * @param {Set<string>} [activePointerIds]  Node ids for current algorithm pointer
    */
-  updateGraph(structures, stepIndex) {
+  updateGraph(structures, stepIndex, activePointerIds = new Set()) {
     if (!structures || structures.length === 0) return
 
     const state     = get()
@@ -90,6 +91,7 @@ const useGraphStore = create((set, get) => ({
       const isActive = newMeta[id]
         ? (stepIndex - newMeta[id].activeSince) < ACTIVE_TTL
         : false
+      const isCurrent = activePointerIds instanceof Set && activePointerIds.has(id)
 
       const nodeData = {
         kind: 'pointer',
@@ -97,6 +99,7 @@ const useGraphStore = create((set, get) => ({
         label,
         rawLabel: label,
         isActive,
+        isCurrent,
         varName: isNew ? info.varName : (prevNode?.data.varName ?? info.varName),
       }
 
@@ -111,14 +114,15 @@ const useGraphStore = create((set, get) => ({
       }
     }
 
-    // Refresh isActive for pointer nodes NOT in current objectMap (TTL decay)
+    // Refresh isActive / isCurrent for pointer nodes NOT in current objectMap (TTL decay)
     for (let i = 0; i < updatedNodes.length; i++) {
       const n = updatedNodes[i]
       if (n.data.kind === 'pointer' && !objectMap.has(n.id)) {
         const meta     = newMeta[n.id]
         const isActive = meta ? (stepIndex - meta.activeSince) < ACTIVE_TTL : false
-        if (n.data.isActive !== isActive) {
-          updatedNodes[i] = { ...n, data: { ...n.data, isActive } }
+        const isCurrent = activePointerIds instanceof Set && activePointerIds.has(n.id)
+        if (n.data.isActive !== isActive || n.data.isCurrent !== isCurrent) {
+          updatedNodes[i] = { ...n, data: { ...n.data, isActive, isCurrent } }
         }
       }
     }
