@@ -118,13 +118,6 @@ export default function Visualizer() {
         />
       </div>
 
-      {/* Call stack frames — below canvas, scrollable if needed */}
-      {snap && (
-        <div className="shrink-0 max-h-40 overflow-y-auto">
-          <StackVisual callStack={snap.callStack} theme={theme} />
-        </div>
-      )}
-
       {/* Empty state hint */}
       {!snap && <EmptyHint theme={theme} />}
     </div>
@@ -152,37 +145,6 @@ function LineCard({ line, theme }) {
       <div>
         <p className={`text-xs font-medium ${theme.text}`}>Executing</p>
         <p className="text-xs text-yellow-400 font-mono">Line {line}</p>
-      </div>
-    </div>
-  )
-}
-
-function StackVisual({ callStack, theme }) {
-  if (!callStack || callStack.length === 0) return null
-  return (
-    <div>
-      <p className={`text-xs font-semibold uppercase tracking-wider ${theme.subText} mb-1.5 select-none`}>Stack Frames</p>
-      <div className="flex flex-col-reverse gap-1">
-        {callStack.map((frame, i) => (
-          <div
-            key={i}
-            className={`
-              rounded-xl px-3 py-2 flex items-center gap-2
-              ${i === callStack.length - 1
-                ? `${theme.panelBg} border-2 border-yellow-400/30`
-                : theme.sidebarBg}
-              transition-all duration-200
-            `}
-            style={{ marginLeft: i * 8 }}
-          >
-            <span className={`text-xs font-mono ${i === callStack.length - 1 ? theme.accentText : theme.subText}`}>
-              {frame}
-            </span>
-            {i === callStack.length - 1 && (
-              <span className="ml-auto text-yellow-400 text-xs">← top</span>
-            )}
-          </div>
-        ))}
       </div>
     </div>
   )

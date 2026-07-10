@@ -63,7 +63,7 @@ const IconHistory = () => (
 
 // ─── Toolbar ──────────────────────────────────────────────────────────────
 
-export default function Toolbar({ code, onLoadCode }) {
+export default function Toolbar({ code, onLoadCode, compactMode = false }) {
   const { theme }                        = useThemeStore()
   const { status, setStatus, hardReset } = useTimelineStore()
   const addRecord                        = useHistoryStore(s => s.addRecord)
@@ -135,107 +135,146 @@ export default function Toolbar({ code, onLoadCode }) {
   const RunIcon   = isRunning ? IconPause : IconRun
   const runBtnClass = (isIdle || isFinished) ? theme.runBtn : theme.runBtnActive
 
+  const historyBtn = (
+    <button
+      onClick={() => setShowHistory(v => !v)}
+      className={`
+        flex items-center justify-center w-7 h-7 rounded-xl
+        transition-all duration-150 active:scale-95 select-none
+        ${showHistory ? theme.btnActive : theme.btnBase}
+      `}
+      title="历史记录"
+    >
+      <IconHistory />
+    </button>
+  )
+
   return (
     <div className={`
-      flex flex-wrap items-center gap-x-1.5 gap-y-1.5 px-3 py-2 shrink-0 min-w-0 w-full
+      flex flex-col gap-1.5 px-3 py-2 shrink-0 min-w-0 w-full
       ${theme.sidebarBg} rounded-2xl mx-3 mt-3
     `}>
-      {/* Run / Pause / Resume / Restart */}
-      <button
-        onClick={handleRun}
-        className={`
-          flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold shrink-0
-          transition-all duration-150 active:scale-95 select-none
-          ${runBtnClass}
-        `}
-        title={runLabel}
-      >
-        <RunIcon />
-        <span>{runLabel}</span>
-      </button>
+      {compactMode ? (
+        <div className="flex items-center gap-1.5 min-w-0 w-full">
+          {/* Run / Pause / Resume / Restart */}
+          <button
+            onClick={handleRun}
+            className={`
+              flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold shrink-0
+              transition-all duration-150 active:scale-95 select-none
+              ${runBtnClass}
+            `}
+            title={runLabel}
+          >
+            <RunIcon />
+            <span>{runLabel}</span>
+          </button>
 
-      <div className={`w-px h-5 mx-0.5 shrink-0 ${theme.divider}`} />
+          <ToolBtn
+            onClick={handleStepInit}
+            disabled={isRunning || isFinished}
+            icon={<IconStep />}
+            label="Step"
+            theme={theme}
+            title={isIdle ? '初始化并进入单步模式' : '单步进入（遇函数则进入内部）'}
+          />
 
-      {/* Step Into / Step Init */}
-      <ToolBtn
-        onClick={handleStepInit}
-        disabled={isRunning || isFinished}
-        icon={<IconStep />}
-        label="Step"
-        theme={theme}
-        title={isIdle ? '初始化并进入单步模式' : '单步进入（遇函数则进入内部）'}
-      />
+          <div className="ml-auto shrink-0">
+            {historyBtn}
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* Top row: primary actions + status */}
+          <div className="flex items-start gap-2 min-w-0 w-full">
+            <div className="flex items-center flex-wrap gap-1.5 min-w-0">
+              <button
+                onClick={handleRun}
+                className={`
+                  flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold shrink-0
+                  transition-all duration-150 active:scale-95 select-none
+                  ${runBtnClass}
+                `}
+                title={runLabel}
+              >
+                <RunIcon />
+                <span>{runLabel}</span>
+              </button>
 
-      {/* Step Over */}
-      <ToolBtn
-        onClick={handleStepOver}
-        disabled={!isPaused}
-        icon={<IconOver />}
-        label="Over"
-        theme={theme}
-        title="单步跨过（执行完当前行的函数调用，停在下一行）"
-      />
+              <div className={`w-px h-5 mx-0.5 shrink-0 ${theme.divider}`} />
 
-      {/* Step Out */}
-      <ToolBtn
-        onClick={handleStepOut}
-        disabled={!isPaused}
-        icon={<IconOut />}
-        label="Out"
-        theme={theme}
-        title="跳出函数（执行完当前函数的剩余部分，返回调用处）"
-      />
+              <ToolBtn
+                onClick={handleStepInit}
+                disabled={isRunning || isFinished}
+                icon={<IconStep />}
+                label="Step"
+                theme={theme}
+                title={isIdle ? '初始化并进入单步模式' : '单步进入（遇函数则进入内部）'}
+              />
 
-      {/* Run to End */}
-      <ToolBtn
-        onClick={handleRunToEnd}
-        disabled={!isPaused}
-        icon={<IconEnd />}
-        label="End"
-        theme={theme}
-        title="运行至结束"
-      />
+              {/* Step Over */}
+              <ToolBtn
+                onClick={handleStepOver}
+                disabled={!isPaused}
+                icon={<IconOver />}
+                label="Over"
+                theme={theme}
+                title="单步跨过（执行完当前行的函数调用，停在下一行）"
+              />
 
-      <div className={`w-px h-5 mx-0.5 shrink-0 ${theme.divider}`} />
+              {/* Step Out */}
+              <ToolBtn
+                onClick={handleStepOut}
+                disabled={!isPaused}
+                icon={<IconOut />}
+                label="Out"
+                theme={theme}
+                title="跳出函数（执行完当前函数的剩余部分，返回调用处）"
+              />
 
-      {/* Reset */}
-      <ToolBtn
-        onClick={handleReset}
-        disabled={isIdle}
-        icon={<IconReset />}
-        label="Reset"
-        theme={theme}
-        title="重置"
-      />
+              {/* Run to End */}
+              <ToolBtn
+                onClick={handleRunToEnd}
+                disabled={!isPaused}
+                icon={<IconEnd />}
+                label="End"
+                theme={theme}
+                title="运行至结束"
+              />
+            </div>
 
-      {/* Stop */}
-      <ToolBtn
-        onClick={handleStop}
-        disabled={isIdle || isFinished}
-        icon={<IconStop />}
-        label="Stop"
-        theme={theme}
-        title="停止执行"
-      />
+            <div className="flex items-center gap-2 shrink-0 ml-auto">
+              {historyBtn}
+              <StatusPill status={status} theme={theme} />
+            </div>
+          </div>
 
-      {/* ── Right side ── */}
-      <div className="flex items-center gap-2 shrink-0 ml-auto">
-        {/* History button */}
-        <button
-          onClick={() => setShowHistory(v => !v)}
-          className={`
-            flex items-center justify-center w-7 h-7 rounded-xl
-            transition-all duration-150 active:scale-95 select-none
-            ${showHistory ? theme.btnActive : theme.btnBase}
-          `}
-          title="历史记录"
-        >
-          <IconHistory />
-        </button>
+          <div className={`h-px w-full ${theme.divider} opacity-40`} />
 
-        {/* Status pill */}
-        <StatusPill status={status} theme={theme} />
-      </div>
+          {/* Bottom row: secondary actions */}
+          <div className="flex items-center gap-1.5 min-w-0 w-full">
+            {/* Reset */}
+            <ToolBtn
+              onClick={handleReset}
+              disabled={isIdle}
+              icon={<IconReset />}
+              label="Reset"
+              theme={theme}
+              title="重置"
+            />
+
+            {/* Stop */}
+            <ToolBtn
+              onClick={handleStop}
+              disabled={isIdle || isFinished}
+              icon={<IconStop />}
+              label="Stop"
+              theme={theme}
+              title="停止执行"
+            />
+          </div>
+        </>
+      )}
 
       {/* History panel overlay */}
       {showHistory && (

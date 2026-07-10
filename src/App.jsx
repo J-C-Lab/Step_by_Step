@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { Allotment } from 'allotment'
 import Header from './components/Header.jsx'
 import Toolbar from './components/Toolbar.jsx'
@@ -149,6 +149,8 @@ while (queue.length > 0) {
   },
 ]
 
+const LEFT_PANEL_COMPACT_THRESHOLD = 520
+
 // ─── App ──────────────────────────────────────────────────────────────────
 
 export default function App() {
@@ -157,6 +159,27 @@ export default function App() {
   const resetGraph = useGraphStore(s => s.reset)
   const [code, setCode] = useState(TEMPLATES[0].code)
   const [visualizerSession, setVisualizerSession] = useState(0)
+  const [leftPaneWidth, setLeftPaneWidth] = useState(0)
+  const leftPaneRef = useRef(null)
+
+  useEffect(() => {
+    const el = leftPaneRef.current
+    if (!el) return
+
+    const updateWidth = () => setLeftPaneWidth(el.clientWidth)
+    updateWidth()
+
+    const observer = new ResizeObserver(entries => {
+      const entry = entries[0]
+      if (!entry) return
+      setLeftPaneWidth(entry.contentRect.width)
+    })
+
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
+
+  const isLeftPaneCompact = leftPaneWidth > 0 && leftPaneWidth < LEFT_PANEL_COMPACT_THRESHOLD
 
   function applyTemplate(tpl) {
     Controller.pause()
@@ -179,9 +202,13 @@ export default function App() {
             <div className={`
               flex flex-col h-full min-w-0 rounded-2xl overflow-hidden
               ${theme.panelBg}
-            `}>
-              <Toolbar code={code} onLoadCode={setCode} />
-              <TemplateBar templates={TEMPLATES} onSelect={applyTemplate} theme={theme} />
+            `}
+            ref={leftPaneRef}
+            >
+              <Toolbar code={code} onLoadCode={setCode} compactMode={isLeftPaneCompact} />
+              {!isLeftPaneCompact && (
+                <TemplateBar templates={TEMPLATES} onSelect={applyTemplate} theme={theme} />
+              )}
               <CodeEditor code={code} onChange={setCode} />
             </div>
           </Allotment.Pane>
