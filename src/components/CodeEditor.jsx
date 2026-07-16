@@ -31,6 +31,7 @@ export default function CodeEditor({ code, onChange }) {
   const mouseDownDisposableRef = useRef(null)
   const toastTimerRef = useRef(null)
   const [prepMessages, setPrepMessages] = useState([])
+  const [prepIncomplete, setPrepIncomplete] = useState(false)
 
   useEffect(() => {
     return () => {
@@ -127,12 +128,14 @@ export default function CodeEditor({ code, onChange }) {
     const result = prepareCodeForVisualization(code)
     onChange(result.code)
     setPrepMessages(result.messages)
+    setPrepIncomplete(Boolean(result.incomplete))
 
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
     toastTimerRef.current = setTimeout(() => {
       setPrepMessages([])
+      setPrepIncomplete(false)
       toastTimerRef.current = null
-    }, 5200)
+    }, result.incomplete ? 9000 : 5200)
 
     requestAnimationFrame(() => {
       editorRef.current?.focus()
@@ -172,12 +175,16 @@ export default function CodeEditor({ code, onChange }) {
 
       {prepMessages.length > 0 && (
         <div className={`
-          absolute right-3 bottom-14 z-20 max-w-[360px]
+          absolute right-3 bottom-14 z-20 max-w-[420px]
           rounded-2xl px-3 py-2 text-xs shadow-lg backdrop-blur-xl
-          ${theme.panelBg} ${theme.text}
+          ${prepIncomplete
+            ? 'border border-amber-400/40 bg-amber-500/15 text-amber-50'
+            : `${theme.panelBg} ${theme.text}`}
         `}>
-          <div className="font-semibold mb-1">已适配为可视化脚本</div>
-          <ul className={`space-y-1 ${theme.subText}`}>
+          <div className={`font-semibold mb-1 ${prepIncomplete ? 'text-amber-200' : ''}`}>
+            {prepIncomplete ? '请补充完整代码' : '已适配为可视化脚本'}
+          </div>
+          <ul className={`space-y-1 whitespace-pre-wrap ${prepIncomplete ? 'text-amber-100/90' : theme.subText}`}>
             {prepMessages.slice(0, 4).map((msg, i) => (
               <li key={i}>- {msg}</li>
             ))}

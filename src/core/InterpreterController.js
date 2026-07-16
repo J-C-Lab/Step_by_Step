@@ -63,7 +63,9 @@ export function init(code) {
   _storeApi.getState().clearDiagnostics?.()
   const prepared = prepareCodeForVisualization(code)
   for (const msg of prepared.messages ?? []) {
-    if (/检测到|修正|补齐|自动/.test(msg)) {
+    if (/请书写完整|缺少示例输入|缺少顶层调用|只会执行声明就结束|已尝试自动补全/.test(msg)) {
+      pushDiagnostic(msg, 'warning')
+    } else if (/检测到|修正|补齐|自动/.test(msg)) {
       pushDiagnostic(msg, 'info')
     }
   }

@@ -85,6 +85,8 @@ export function prepareCodeForVisualization(code) {
     messages.push(treeBuildResult.message)
   }
 
+  const priorCompleteness = assessAlgorithmCompleteness(nextCode)
+
   const beforeInvokeFix = nextCode
   const invokeResult = appendMissingFunctionInvocation(nextCode)
   nextCode = invokeResult.code
@@ -100,6 +102,17 @@ export function prepareCodeForVisualization(code) {
     messages.push('已做轻量格式化，让代码更适合逐步阅读。')
   }
 
+  const completeness = assessAlgorithmCompleteness(nextCode)
+  if (completeness.incomplete) {
+    messages.unshift(completeness.message)
+  } else if (priorCompleteness.incomplete) {
+    messages.unshift(
+      priorCompleteness.message.includes('缺少示例输入')
+        ? '检测到原代码只包含算法函数，缺少示例输入与顶层调用。已尝试自动补全；建议手动书写完整代码（示例输入 + 调用），便于可视化完整执行路径。'
+        : '检测到原代码已有输入但缺少顶层调用。已尝试自动补全入口调用；建议确认调用参数是否正确。'
+    )
+  }
+
   if (messages.length === 0) {
     messages.push('代码已经基本适合可视化。')
   }
@@ -107,6 +120,7 @@ export function prepareCodeForVisualization(code) {
   return {
     code: nextCode,
     messages,
+    incomplete: completeness.incomplete,
     changed: nextCode !== String(code ?? ''),
   }
 }
@@ -384,22 +398,16 @@ function appendMissingFunctionInvocation(code) {
     .map(arg => arg.trim())
     .filter(Boolean)
 
-  const escapedName = escapeRegExp(functionName)
-  const callPattern = new RegExp(`(^|[^\\w$])${escapedName}\\s*\\(`, 'g')
-  let callCount = 0
-  let m
-
-  while ((m = callPattern.exec(code)) !== null) {
-    callCount++
-  }
+  // Only count top-level calls. Recursive self-calls inside the body must not
+  // block appending an entry-point invocation.
+  const callCount = countTopLevelCalls(code, functionName)
 
   if (callCount > 0 || args.length === 0) return { code, message: '' }
 
   // For each param not already defined globally, generate a sample value
   const additions = []
   for (const arg of args) {
-    const alreadyDefined = new RegExp(`\\bvar\\s+${escapeRegExp(arg)}\\b`).test(code)
-    if (!alreadyDefined) {
+    if (!isTopLevelVarDeclared(code, arg)) {
       additions.push(`var ${arg} = ${getDefaultArgValue(arg)};`)
     }
   }
@@ -410,6 +418,165 @@ function appendMissingFunctionInvocation(code) {
     ? `检测到只定义函数未调用，已自动添加示例输入（${additions.map(l => l.split('=')[0].replace('var','').trim()).join(', ')}）并追加调用。请按需修改示例数据。`
     : '检测到只定义函数未调用，已追加 var result = fn(args) 以进入算法内部。'
   return { code: newCode, message: note }
+}
+
+/**
+ * Detect algorithm snippets that are only a method definition — no sample
+ * inputs and no top-level call — and ask the user to write a complete script.
+ */
+function assessAlgorithmCompleteness(code) {
+  const fn = findPrimaryAlgorithmFunction(code)
+  if (!fn) return { incomplete: false, message: '' }
+
+  const topLevelCalls = countTopLevelCalls(code, fn.name)
+  const hasInputs = hasTopLevelSampleInputs(code, fn.params)
+
+  if (topLevelCalls > 0) return { incomplete: false, message: '' }
+
+  const exampleInputs = fn.params
+    .map(param => `var ${param} = ${getDefaultArgValue(param)};`)
+    .join('\n')
+  const callLine = `var result = ${fn.name}(${fn.params.join(', ')});`
+
+  if (!hasInputs) {
+    return {
+      incomplete: true,
+      message:
+        `检测到代码只包含算法函数「${fn.name}」，缺少示例输入与顶层调用。` +
+        `请书写完整后再运行，例如：\n${exampleInputs || '/* 在此声明示例输入 */'}\n${callLine}`,
+    }
+  }
+
+  return {
+    incomplete: true,
+    message:
+      `检测到已定义函数「${fn.name}」及输入，但缺少顶层调用，可视化只会执行声明就结束。` +
+      `请补充：${callLine}`,
+  }
+}
+
+function findPrimaryAlgorithmFunction(code) {
+  const varFn = code.match(/\bvar\s+([A-Za-z_$][\w$]*)\s*=\s*function\s*\(([^)]*)\)/)
+  if (varFn) {
+    return {
+      name: varFn[1],
+      params: splitParamNames(varFn[2]),
+    }
+  }
+
+  const declFn = code.match(/\bfunction\s+([A-Za-z_$][\w$]*)\s*\(([^)]*)\)/)
+  if (declFn && declFn[1] !== 'TreeNode' && !declFn[1].startsWith('__')) {
+    return {
+      name: declFn[1],
+      params: splitParamNames(declFn[2]),
+    }
+  }
+
+  return null
+}
+
+function splitParamNames(paramsSource) {
+  return String(paramsSource ?? '')
+    .split(',')
+    .map(arg => arg.trim().split('=')[0].trim())
+    .filter(name => /^[A-Za-z_$][\w$]*$/.test(name))
+}
+
+/** Count calls to `functionName(...)` that occur outside any `{ ... }` body. */
+function countTopLevelCalls(code, functionName) {
+  let depth = 0
+  let count = 0
+  let i = 0
+  const n = code.length
+  const nameLen = functionName.length
+
+  while (i < n) {
+    const c = code[i]
+
+    if (c === '"' || c === "'" || c === '`') {
+      const quote = c
+      i++
+      while (i < n && code[i] !== quote) {
+        if (code[i] === '\\') i++
+        i++
+      }
+      i++
+      continue
+    }
+
+    if (c === '/' && code[i + 1] === '/') {
+      i += 2
+      while (i < n && code[i] !== '\n') i++
+      continue
+    }
+
+    if (c === '/' && code[i + 1] === '*') {
+      i += 2
+      while (i < n - 1 && !(code[i] === '*' && code[i + 1] === '/')) i++
+      i += 2
+      continue
+    }
+
+    if (c === '{') {
+      depth++
+      i++
+      continue
+    }
+    if (c === '}') {
+      depth = Math.max(0, depth - 1)
+      i++
+      continue
+    }
+
+    if (depth === 0 && code.startsWith(functionName, i)) {
+      const prev = i === 0 ? '' : code[i - 1]
+      if (i > 0 && /[\w$]/.test(prev)) {
+        i++
+        continue
+      }
+
+      // Skip `function name(` declarations
+      const before = code.slice(Math.max(0, i - 12), i)
+      if (/\bfunction\s*$/.test(before)) {
+        i += nameLen
+        continue
+      }
+
+      let j = i + nameLen
+      while (j < n && /\s/.test(code[j])) j++
+      if (code[j] === '(') {
+        count++
+        i = j + 1
+        continue
+      }
+    }
+
+    i++
+  }
+
+  return count
+}
+
+/** Whether params already have top-level `var name = ...` sample bindings. */
+function hasTopLevelSampleInputs(code, params) {
+  if (!params || params.length === 0) return true
+  return params.every(param => isTopLevelVarDeclared(code, param))
+}
+
+/** True if `name` is declared at top level via `var name` or `var a = ..., name = ...`. */
+function isTopLevelVarDeclared(code, name) {
+  let depth = 0
+  const lines = code.split('\n')
+  const direct = new RegExp(`\\bvar\\s+${escapeRegExp(name)}\\b`)
+  const comma = new RegExp(`,\\s*${escapeRegExp(name)}\\s*=`)
+
+  for (const line of lines) {
+    if (depth === 0 && (direct.test(line) || comma.test(line))) {
+      return true
+    }
+    depth = Math.max(0, depth + braceDeltaIgnoringStrings(line))
+  }
+  return false
 }
 
 function autoBuildTreeInputs(code) {
